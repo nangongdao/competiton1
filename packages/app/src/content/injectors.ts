@@ -14,6 +14,34 @@ export interface InjectResult {
   readonly diagnostics?: ReadonlyArray<{ selector: string; matched: boolean }>;
 }
 
+/**
+ * 安全地把 HTML 写入可编辑区 —— 不使用 innerHTML。
+ *
+ * 改为经 DOMParser 解析后逐节点导入,并在导入过程中剥离所有事件处理器属性。
+ * innerHTML 赋值时 <script> 不会执行,但 <img onerror>/<svg onload>/<iframe srcdoc>
+ * 这类事件处理器型载荷会立即执行,故此处作为净化器之外的最后一道防线。
+ *
+ * @param el 目标可编辑元素
+ * @param html 已净化的 HTML 字符串
+ */
+function setEditableHtml(el: HTMLElement, html: string): void {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  // 剥离所有 on* 事件属性(纵深防御,净化器之外的最后一道)。
+  for (const node of doc.body.querySelectorAll("*")) {
+    for (const attr of [...node.attributes]) {
+      if (attr.name.toLowerCase().startsWith("on")) {
+        node.removeAttribute(attr.name);
+      }
+    }
+  }
+
+  el.replaceChildren();
+  for (const child of [...doc.body.childNodes]) {
+    el.appendChild(document.importNode(child, true));
+  }
+}
+
 /** 把 HTML 写入首个命中的 contenteditable 元素(知乎/B站/公众号富文本)。 */
 function fillContentEditable(selectors: readonly string[], html: string): InjectResult {
   const diagnostics: Array<{ selector: string; matched: boolean }> = [];
@@ -22,7 +50,7 @@ function fillContentEditable(selectors: readonly string[], html: string): Inject
     diagnostics.push({ selector, matched: !!el });
     if (!el) continue;
     el.focus();
-    el.innerHTML = html;
+    setEditableHtml(el, html);
     el.dispatchEvent(new InputEvent("input", { bubbles: true }));
     return { injected: true, diagnostics };
   }

@@ -113,6 +113,12 @@ function getDraftStore(bridge: PlatformBridge | null): DraftStore {
   return draftStore;
 }
 
+/** 预览更新防抖(UPGRADE §3.3):连续输入时只在停顿后触发一次适配,避免每次按键全量重算。 */
+const PREVIEW_DEBOUNCE_MS = 250;
+/** 适配序号:过期结果守卫,防止慢的旧请求覆盖新结果。 */
+let adaptTimer: ReturnType<typeof setTimeout> | null = null;
+let adaptSeq = 0;
+
 /** 从首行 # 标题或正文首句提取草稿标题。 */
 function deriveTitle(markdown: string): string {
   const heading = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim();
@@ -200,16 +206,24 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   adapt: () => {
-    const { markdown, authorName, tags, selectedPlatforms } = get();
-    const { document, assetTable } = markdownToIR(markdown, {
-      meta: { authorName, tags, canonicalUrl: "https://example.com/post" },
-    });
-    // stageOnly:只产出暂存产物用于预览,不模拟发布。
-    void syncToPlatforms(document, selectedPlatforms, {
-      stageOnly: true,
-      assetTable,
-      now: () => new Date().toISOString(),
-    }).then((results) => set({ results }));
+    // 防抖:连续编辑(敲字/改标签/切平台)只在停顿 PREVIEW_DEBOUNCE_MS 后触发一次适配。
+    const seq = ++adaptSeq;
+    if (adaptTimer) clearTimeout(adaptTimer);
+    adaptTimer = setTimeout(() => {
+      const { markdown, authorName, tags, selectedPlatforms } = get();
+      const { document, assetTable } = markdownToIR(markdown, {
+        meta: { authorName, tags, canonicalUrl: "https://example.com/post" },
+      });
+      // stageOnly:只产出暂存产物用于预览,不模拟发布。
+      void syncToPlatforms(document, selectedPlatforms, {
+        stageOnly: true,
+        assetTable,
+        now: () => new Date().toISOString(),
+      }).then((results) => {
+        // 过期结果守卫:只接受最新一次适配的结果,防止乱序覆盖(慢请求晚到不回写)。
+        if (seq === adaptSeq) set({ results });
+      });
+    }, PREVIEW_DEBOUNCE_MS);
   },
 
   publishAll: async () => {
@@ -321,7 +335,9 @@ export const useStore = create<AppState>((set, get) => ({
     }
     const receipts: Record<string, string> = {};
     for (const r of results) {
-      receipts[r.platformId] = r.receipt?.message ?? r.error ?? "未发布";
+      const failNote =
+        (r.rehostFailures ?? []).length > 0 ? `(${r.rehostFailures!.length} 张图重托管失败)` : "";
+      receipts[r.platformId] = (r.receipt?.message ?? r.error ?? "未发布") + failNote;
     }
     set({ results, receipts, publishing: false });
 

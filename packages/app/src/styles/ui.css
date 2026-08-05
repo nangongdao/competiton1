@@ -280,6 +280,10 @@
   background: var(--surface-2);
   color: var(--text-2);
 }
+.tag-score {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  color: var(--accent, #2563eb);
+}
 
 /* ===== 抽屉(Radix Dialog 内容) ===== */
 .drawer-overlay {
@@ -594,6 +598,13 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.issue-suggestions {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px dashed var(--border);
   border-radius: var(--r-sm);
 }
 .instructions-title {

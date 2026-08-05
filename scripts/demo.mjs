@@ -72,10 +72,20 @@ async function main() {
     const errs = issues.filter((i) => i.severity === "error").length;
     const warns = issues.filter((i) => i.severity === "warning").length;
     const status = r.ok ? "✅" : "⛔";
+    // 重托管失败明细:发布前让用户知道哪些图没传成功(公众号外链图会被平台屏蔽)。
+    const failures = r.rehostFailures ?? [];
+    for (const f of failures) {
+      console.log(`      ⚠️ 图片重托管失败:${f.sourceUrl} → ${f.reason}`);
+    }
     console.log(
       `${status} ${r.platformName.padEnd(8)} → ${file.padEnd(18)} ` +
         `[${errs} error, ${warns} warning] ${r.receipt ? r.receipt.message : r.error ?? ""}`,
     );
+    // 排版质量分(UPGRADE §5.2):四维评分 + 建议。
+    if (r.quality) {
+      console.log(`      排版 ${r.quality.overall}/100 [段落${r.quality.paragraphRhythm} 图文${r.quality.imageBalance} 标题${r.quality.headingStructure} 可读${r.quality.readability}]`);
+      for (const s of r.quality.suggestions) console.log(`      💡 ${s}`);
+    }
     for (const i of issues) {
       console.log(`      ${sev(i.severity)} ${i.message}`);
     }
@@ -92,6 +102,8 @@ async function main() {
       bodyChars: payload ? countChars(payload) : 0,
       extra: payload?.extra,
       issues,
+      rehostFailures: failures,
+      quality: r.quality,
       receipt: r.receipt,
       instructions: r.artifact?.instructions,
     });

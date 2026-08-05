@@ -33,3 +33,14 @@ jobs:
 
       - name: Test with coverage
         run: npm run test:coverage
+
+      # 生产依赖漏洞扫描(--omit=dev:开发期工具链(vitest/vite)漏洞不阻塞发布,
+      # 只强制关注 server/扩展运行时依赖的安全)。
+      - name: 生产依赖漏洞扫描
+        run: npm audit --omit=dev --audit-level=high
+
+      # 构建产物验证:core 类型构建 + 扩展 MV3 产物,确保可发布。
+      - name: 构建产物验证
+        run: |
+          npm run build:core
+          npm run build:ext

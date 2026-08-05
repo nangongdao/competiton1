@@ -17,7 +17,7 @@ npm run demo
 # 交互式 Web 工具(主演示路径,无需扩展/密钥)
 npm run dev          # 打开 http://localhost:5176
 
-# 全量单测(120) + 类型检查 + 代码风格
+# 全量单测(229) + 类型检查 + 代码风格
 npm test
 npm run typecheck
 npm run lint
@@ -190,17 +190,86 @@ curl http://127.0.0.1:8787/health   # 查看出口 IP 与配置状态
 
 ---
 
+## 性能与能力进阶
+
+好架构配得上好性能 —— 在"零密钥闭环"之上补齐性能与产品思维：
+
+### 图片重托管并发化 + 同源去重
+
+- **平台内并发上传**：`rehost-engine.ts` 以受控并发执行单平台内的图片上传（`mapWithConcurrency`，结果按输入顺序稳定回填），图片多的长文从"逐张串行"提速约 `min(图数, 并发)` 倍。平台层与资产层双并发：4 平台 × 12 图、300ms/图 的慢图床下，发布从 ~7.2s 降到 ~1.8s（`perf.spec.ts` 守护，串行基线 14.4s）。
+- **按平台限流策略**（`assets/rate-policy.ts`）：公众号素材接口限流最严用并发 3，知乎/小红书 6、B站 4；`AdaptiveConcurrency` 提供 AIMD 自适应并发（遇 429 减半、连续成功 10 次 +1），可注入 `RehostContext.concurrency`。
+- **同源去重**：同一文档内同 source（URL/dataURL/本地路径）只上传一次，结果共享给所有同源资产；`computeContentHash` 提供内容寻址原语（SHA-256 前缀，WebCrypto 不可用时退化 FNV-1a），供去重/缓存键复用。
+- **server 公众号正文图同样并发**：`wechat/rehost.ts` 正文图重托管按并发 3 + 同源去重执行。
+
+### 增量适配与预览防抖
+
+- **`pipeline/incremental.ts`**：`IncrementalAdapter` 三层缓存 —— 源 Markdown 哈希未变复用解析出的 IR；平台 config/override 未变复用该平台序列化产物；仅单平台配置变化只重算该平台。core 零 DOM，天然可放进 Web Worker。
+- **前端防抖**（`store.ts`）：预览适配 250ms 防抖 + 过期结果守卫，连续输入只算一次，慢请求不会乱序覆盖新结果。
+
+### 排版质量评分（答辩亮点）
+
+`quality/typography.ts` 为每个平台产物打 **0-100 分**并给出可执行建议，四维加权：
+
+| 维度 | 含义 | 公众号 | 知乎 | B站 | 小红书 |
+|---|---|---|---|---|---|
+| 段落节奏 | 单段字数 vs 平台理想值 | ≤60 字 | ≤140 | ≤100 | ≤40 |
+| 图文平衡 | 配图数 vs 按字数期望 | 每 400 字 1 图 | 900 | 700 | 150 |
+| 标题结构 | 跳级/空标题/无小标题扣分 | — | — | — | — |
+| 可读性 | 超长无分隔文本块 | — | — | — | — |
+
+UI 头部显示「排版 82/100」，校验页列出「排版建议」（如"第 3 段偏长，拆成 2-3 段更利移动端阅读"）；`report.json` 含各平台 `quality` 明细。这是从"工具"到"助手"的产品思维体现。
+
+---
+
+## 内容安全与纵深防御
+
+不受信内容（LLM 增强产物、第三方 Markdown 内嵌 HTML）可能被 prompt injection 操纵产出恶意 HTML。全部 HTML 序列化产物都经过 **统一净化出口 + 多层纵深防御**：
+
+### HTML 净化（`packages/core/src/adapters/shared/sanitize-html.ts`）
+
+- 基于 **sanitize-html（htmlparser2 真实解析）**，不用正则——正则无法解析 HTML 语法树，协议变形（`java\tscript:`）、实体编码（`&#58;`/`&colon;`）、属性边界错位等一整类绕过无法穷举。
+- **白名单模型**：只保留排版标签；属性白名单 + `style` 值白名单正则。
+- **协议收严**：`allowedSchemes` 只放行 `http/https/mailto`；`img` 单独放行 `data:image`（内联刚需）且再次收严到标准位图格式，排除 `data:text/html`、SVG（可携带脚本）。
+- **回归用例**：曾实证绕过的 9 条载荷（`data:` 伪协议、Tab/换行分隔、数字/命名实体、style 内变形、大小写混合）固化为 `sanitize.spec.ts` 回归测试。
+
+### content script 加固（`packages/app/src/content/`）
+
+content script 运行在**用户已登录的平台页面上下文**，是最敏感的位置，三层防护叠加：
+
+1. **发送方校验**（`assisted-handoff.ts`）：`sender.id !== chrome.runtime.id` 的消息一律拒绝。
+2. **注入前二次净化**：即便发送方是扩展自身，注入前仍再过一遍 `sanitizeHtml`。
+3. **不用 `innerHTML`**（`injectors.ts`）：改经 `DOMParser` 解析 + 逐节点导入，并剥离所有 `on*` 事件属性——`<img onerror>`/`<svg onload>` 这类事件处理器载荷无法进入平台 DOM。
+4. **选择器白名单**（`selectors.ts`）：远程覆盖只接受常规 CSS 选择器字符且长度受限，防止恶意覆盖把注入目标指向任意元素（如 `body`）。
+
+### SSRF 防护（`packages/core/src/assets/url-guard.ts`）
+
+服务端/图床会主动拉取 Markdown 中的图片 URL 重托管，若不防护可被构造 `http://169.254.169.254/...` 探测内网。`isSafeImageUrl` 阻断：内网 IPv4 段（10/172.16/192.168/回环/链路本地/CGNAT/组播）、`localhost`、IPv6 内网（`::1`/`fc00::`/`fe80::`），并对 `rehost-engine` 的每个外链图在执行前校验。
+
+### 扩展权限收窄（`packages/app/manifest.config.ts`）
+
+`host_permissions` 只声明实际使用的平台域名 + 本机 `127.0.0.1:8787`（server）与 `:8790`（runner）具体端口，不用 `localhost`（可被 hosts 劫持）。
+
+### 发布可靠性
+
+- **重托管失败明细**（`ARCH-01`）：单图失败不阻断整篇，但通过 `PlatformResult.rehostFailures` 逐条上报（assetId/sourceUrl/reason），在扩展 UI 与 `report.json` 中展示——用户发布前就知道"3 张图没传成功，公众号侧可能显示异常"。
+- **发布幂等**（`ARCH-02`）：`contentHashOfPayload` 对正文+标题+摘要+意图算稳定 FNV-1a 哈希，`buildIdempotencyKey` 生成 `platform:意图:哈希` 键；公众号发布在 server 端按幂等键缓存首次结果，网络抖动重试不会产生重复草稿/重复发布。
+
+### CI 强制
+
+`.github/workflows/ci.yml` 在 typecheck/lint/coverage 之外，增加**生产依赖漏洞扫描**（`npm audit --omit=dev --audit-level=high`）与**构建产物验证**（`build:core` + `build:ext`），任何一步失败即阻断合并。
+
 ## 测试与验证
 
 | 验证 | 命令 | 覆盖 |
 |---|---|---|
-| 单测（120 个） | `npm test` | MD→IR 解析、各变换纯函数、字素簇计数、校验规则、四适配器序列化、HTML 净化、配置覆盖、图片重托管、图床辅助函数、LLM 增强（注入 mock fetch）、公众号 API 构造、TokenCache 并发锁、选择器覆盖、上传路由 |
+| 单测（229 个） | `npm test` | MD→IR 解析、各变换纯函数、字素簇计数、校验规则、四适配器序列化、HTML 净化、SSRF URL 防护、幂等键、配置覆盖、图片重托管（并发/同源去重/失败明细）、图床辅助函数、限流策略与自适应并发、排版评分、增量适配缓存、LLM 增强（注入 mock fetch）、公众号 API 构造、TokenCache 并发锁、选择器覆盖、上传路由、公众号发布幂等与并发重托管 |
 | 覆盖率门槛 | `npm run test:coverage` | core 行/分支/函数/语句 ≥80%（CI 强制） |
 | 类型检查 | `npm run typecheck` | core/app/server 三包 strict |
 | 代码风格 | `npm run lint` | ESLint flat config + typescript-eslint + react-hooks |
-| 零密钥闭环 | `npm run demo` | 四平台产物落盘 + 本地图上传图床 + 校验 + 回执 |
-| 交互工具 | `npm run dev` | 浏览器实时预览/校验/模拟发布/Canvas 封面/草稿持久化/AI 增强 |
+| 零密钥闭环 | `npm run demo` | 四平台产物落盘 + 本地图上传图床 + 校验 + 排版评分 + 回执 |
+| 交互工具 | `npm run dev` | 浏览器实时预览/校验/模拟发布/Canvas 封面/草稿持久化/AI 增强/排版分 |
 | MV3 扩展 | `npm run build:ext` | MV3 产物 dist-ext，Chrome 加载已解压扩展 |
+| 性能回归 | `npm run test:coverage`（含 `perf.spec.ts`） | 4 平台 × 12 图、300ms/图 慢图床下发布 < 2s（并发化守护） |
 
 > UI/扩展为前端，类型检查与单测保证**代码正确性**；**功能正确性**（编辑器注入、真实发布、真实对象存储联调）需在浏览器实际操作或配置外部凭据验证，依赖真实平台登录态的部分无法自动化。草稿持久化、发布历史已用 Playwright 跨刷新验证。
 
@@ -220,11 +289,13 @@ packages/core/src/
 ├── ir/          # IR 契约:Document/Block/Inline/Asset/Capabilities
 ├── parse/       # markdown-it → IR
 ├── transforms/  # 能力驱动降级变换库(纯函数 IR→IR)+ 管线 + 注册表
+├── pipeline/    # 增量适配引擎(IncrementalAdapter:源哈希/平台 config 缓存)
+├── quality/     # 排版质量评分(段落节奏/图文平衡/标题结构/可读性)
 ├── adapters/    # 适配器注册表 + 四平台 + shared/sanitize-html(净化护栏)
 ├── config/      # 平台配置外置(违禁词/limits/主题 可覆盖)
-├── assets/      # 资产表 + ImageHost 契约 + 重托管引擎
+├── assets/      # 资产表 + ImageHost 契约 + 重托管引擎(并发/同源去重)+ 限流策略 + SSRF 防护 + 内容哈希
 ├── validate/    # 按 capabilities + 注入配置校验
-├── publish/     # 两阶段 Publisher(Mock + 公众号官方 API 构造)
+├── publish/     # 两阶段 Publisher(Mock + 公众号官方 API)+ 幂等键(idempotency)
 ├── llm/         # LlmAdapter 接口 + OpenAiCompatLlm + 字段级 enhance
 └── sync/        # 有界并发同步引擎(接 rehost / LLM 异步阶段,均可选退化)
 

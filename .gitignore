@@ -17,6 +17,10 @@ packages/server/data/
 # Test / coverage
 coverage/
 .vitest/
+.vitest-cache/
+
+# Local tool caches (nezha monitor — never commit)
+.nezha/
 
 # Secrets — NEVER commit
 .env
@@ -38,3 +42,4 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+logs/

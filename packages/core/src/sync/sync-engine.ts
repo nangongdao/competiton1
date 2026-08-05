@@ -14,10 +14,11 @@ import type { PublishArtifact, PublishContext, Publisher, PublishReceipt } from 
 import type { PlatformConfigMap } from "../config/platform-config.js";
 import { resolveConfig } from "../config/platform-config.js";
 import type { RehostContext } from "../adapters/types.js";
-import { rehostDocumentAssets } from "../assets/rehost-engine.js";
+import { rehostDocumentAssets, type RehostFailure } from "../assets/rehost-engine.js";
 import type { LlmAdapter } from "../llm/types.js";
 import { enhancePayload, type EnhanceOptions } from "../llm/enhance.js";
 import type { AssetTable } from "../assets/asset-table.js";
+import { scoreTypography, type TypographyScore } from "../quality/typography.js";
 
 export interface PlatformResult {
   readonly platformId: string;
@@ -27,6 +28,10 @@ export interface PlatformResult {
   readonly artifact?: PublishArtifact;
   readonly receipt?: PublishReceipt;
   readonly error?: string;
+  /** 该平台图片重托管的失败明细(供 UI 提示用户哪些图未上传成功)。 */
+  readonly rehostFailures?: readonly RehostFailure[];
+  /** 该平台的排版质量评分(0-100)与改进建议。 */
+  readonly quality?: TypographyScore;
 }
 
 export interface SyncOptions {
@@ -88,17 +93,23 @@ async function processPlatform(
   }
   const override = options.overrides?.[platformId];
   const config = options.config?.[platformId];
+  const rehostFailures: RehostFailure[] = [];
   try {
     let processed = adapter.preprocess(doc, override, config);
     // 图片重托管阶段(异步,可选):注入了该平台 rehost 上下文时,把图片重托管到平台图床,
-    // 结果回填 IR,使 serialize 的 resolveImageSrc 取到平台 URL。
+    // 结果回填 IR,使 serialize 的 resolveImageSrc 取到平台 URL。单图失败不阻断整篇,
+    // 但通过 onFailure 累积失败明细,经 PlatformResult.rehostFailures 透出给用户。
     const rehostCtx = options.rehost?.[platformId];
     if (rehostCtx) {
-      processed = await rehostDocumentAssets(adapter, processed, rehostCtx, options.assetTable);
+      processed = await rehostDocumentAssets(adapter, processed, rehostCtx, options.assetTable, (f) =>
+        rehostFailures.push(f),
+      );
     }
     // 解析运行时配置(主题/排版等),serialize 层据此选择主题。
     const resolvedConfig = config ? resolveConfig(adapter.capabilities.limits, config) : undefined;
     const payload = adapter.serialize(processed, override, resolvedConfig);
+    // 排版质量评分:基于 preprocess 后的文档(结构仍保留段落/标题/图片),供 UI 展示"分 + 建议"。
+    const quality = scoreTypography(processed, platformId);
     // LLM 增强阶段(异步,可选):注入了可用 llm 且指定 enhance 项时,做风格改写。
     let finalPayload = payload;
     if (options.llm && options.enhance) {
@@ -111,7 +122,7 @@ async function processPlatform(
     const artifact = publisher.stage(finalPayload, ctx);
 
     if (options.stageOnly) {
-      return { platformId, platformName: adapter.name, ok: !report.hasError, report, artifact };
+      return { platformId, platformName: adapter.name, ok: !report.hasError, report, artifact, quality, rehostFailures };
     }
 
     if (report.hasError && !options.publishOnError) {
@@ -122,6 +133,8 @@ async function processPlatform(
         report,
         artifact,
         error: "校验未通过(存在 error),已阻止发布",
+        quality,
+        rehostFailures,
       };
     }
 
@@ -133,6 +146,8 @@ async function processPlatform(
       report,
       artifact,
       receipt,
+      quality,
+      rehostFailures,
     };
   } catch (err) {
     return {
@@ -140,6 +155,7 @@ async function processPlatform(
       platformName: adapter.name,
       ok: false,
       error: err instanceof Error ? err.message : String(err),
+      rehostFailures,
     };
   }
 }

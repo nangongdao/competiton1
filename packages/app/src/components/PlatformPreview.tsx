@@ -1,7 +1,7 @@
 import type { PlatformResult, ValidationIssue } from "@mpp/core";
 import { memo, useState, useCallback } from "react";
 import DOMPurify from "dompurify";
-import { XCircle, AlertTriangle, Info, CheckCircle2, ListChecks, Copy, Check, Loader2 } from "lucide-react";
+import { XCircle, AlertTriangle, Info, CheckCircle2, ListChecks, Copy, Check, Loader2, Gauge } from "lucide-react";
 import { platformColor } from "./platform-meta.js";
 import type { PlatformBridge } from "../bridge/types.js";
 
@@ -127,6 +127,23 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
               {warnCount} 提醒
             </span>
           )}
+          {/* 排版质量分:四维评分 + 建议,从"能发布"到"发得好"。 */}
+          {result.quality && (
+            <span
+              className="tag tag-score"
+              title={`排版质量\n段落节奏 ${result.quality.paragraphRhythm}/100\n图文平衡 ${result.quality.imageBalance}/100\n标题结构 ${result.quality.headingStructure}/100\n可读性 ${result.quality.readability}/100`}
+            >
+              <Gauge size={11} aria-hidden />
+              排版 {result.quality.overall}/100
+            </span>
+          )}
+          {/* 图片重托管失败:发布前提示用户哪些图未上传成功(如公众号外链图会被平台屏蔽)。 */}
+          {(result.rehostFailures ?? []).length > 0 && (
+            <span className="tag tag-warn" title={result.rehostFailures!.map((f) => `${f.sourceUrl} → ${f.reason}`).join("\n")}>
+              <AlertTriangle size={11} aria-hidden />
+              {result.rehostFailures!.length} 张图重托管失败
+            </span>
+          )}
         </span>
       </div>
 
@@ -157,7 +174,13 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
       >
         {tab === "preview" && <PreviewRender payload={payload} platformId={result.platformId} />}
         {tab === "source" && <pre className="preview-source">{payload.content}</pre>}
-        {tab === "issues" && <IssueList issues={issues} instructions={result.artifact?.instructions ?? []} />}
+        {tab === "issues" && (
+          <IssueList
+            issues={issues}
+            instructions={result.artifact?.instructions ?? []}
+            suggestions={result.quality?.suggestions ?? []}
+          />
+        )}
       </div>
     </div>
   );
@@ -200,9 +223,11 @@ function IssueIcon({ severity }: { severity: ValidationIssue["severity"] }) {
 function IssueList({
   issues,
   instructions,
+  suggestions,
 }: {
   issues: readonly ValidationIssue[];
   instructions: readonly string[];
+  suggestions: readonly string[];
 }) {
   return (
     <div className="issue-list">
@@ -218,6 +243,20 @@ function IssueList({
           <span>{i.message}</span>
         </div>
       ))}
+      {suggestions.length > 0 && (
+        <div className="issue-suggestions">
+          <div className="instructions-title">
+            <Gauge size={13} aria-hidden />
+            排版建议
+          </div>
+          {suggestions.map((s, idx) => (
+            <div key={`${idx}-${s}`} className="issue issue-info">
+              <Info size={15} aria-hidden />
+              <span>{s}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {instructions.length > 0 && (
         <div className="instructions">
           <div className="instructions-title">

@@ -13,7 +13,17 @@ export {
   decodeDataUrl,
   assetFilename,
 } from "./assets/image-host.js";
-export { rehostDocumentAssets } from "./assets/rehost-engine.js";
+export { rehostDocumentAssets, mapWithConcurrency } from "./assets/rehost-engine.js";
+export type { RehostFailure, RehostFailureHandler } from "./assets/rehost-engine.js";
+export { isSafeImageUrl } from "./assets/url-guard.js";
+export { computeContentHash } from "./assets/content-hash.js";
+export {
+  PLATFORM_RATE_POLICY,
+  DEFAULT_RATE_POLICY,
+  ratePolicyFor,
+  AdaptiveConcurrency,
+} from "./assets/rate-policy.js";
+export type { RatePolicy } from "./assets/rate-policy.js";
 
 // 解析
 export { createMarkdownParser } from "./parse/markdown.js";
@@ -30,6 +40,14 @@ export { parseTableAsset, TABLE_ASSET_SCHEME } from "./transforms/table-to-image
 export { scanBannedWords, DEFAULT_BANNED_WORDS } from "./transforms/banned-word-filter.js";
 export { buildCoverSpec } from "./transforms/cover-spec.js";
 export type { CoverSpec, CoverRatio, CoverSpecOptions } from "./transforms/cover-spec.js";
+
+// 管线(增量适配)
+export { IncrementalAdapter } from "./pipeline/incremental.js";
+export type { IncrementalOptions, IncrementalResult } from "./pipeline/incremental.js";
+
+// 质量(排版评分)
+export { scoreTypography, TYPOGRAPHY_PREFERENCES, DEFAULT_TYPOGRAPHY_PREFERENCE } from "./quality/typography.js";
+export type { TypographyScore, TypographyPreference } from "./quality/typography.js";
 
 // 适配器
 export type { PlatformAdapter, SerializedPayload, RehostContext, RehostResult } from "./adapters/types.js";
@@ -59,6 +77,8 @@ export type { ValidationReport, ValidationIssue, Severity } from "./validate/typ
 export type { Publisher, PublishArtifact, PublishReceipt, PublishContext } from "./publish/types.js";
 export { MockPublisher } from "./publish/mock-publisher.js";
 export { instructionsFor } from "./publish/instructions.js";
+export { buildIdempotencyKey, contentHashOfPayload, fnv1a } from "./publish/idempotency.js";
+export type { PublishIntent } from "./publish/idempotency.js";
 export * as WechatApi from "./publish/wechat-official-api.js";
 
 // LLM

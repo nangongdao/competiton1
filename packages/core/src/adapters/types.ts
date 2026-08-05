@@ -31,6 +31,8 @@ export interface SerializedPayload {
 export interface RehostContext {
   readonly platformId: string;
   readonly upload: (asset: Asset) => Promise<{ url?: string; mediaId?: string }>;
+  /** 单平台内图片上传并发上限。缺省按平台限流策略(公众号 3,其余 6)。 */
+  readonly concurrency?: number;
 }
 
 export interface RehostResult {

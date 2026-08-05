@@ -23,7 +23,10 @@ export default defineManifest({
     "https://zhuanlan.zhihu.com/*",
     "https://member.bilibili.com/*",
     "https://creator.xiaohongshu.com/*",
-    "http://localhost/*",
+    // 本机 server(图床/公众号官方 API)与 runner(网页自动化发布)端口。
+    // 收窄到实际端口,并优先 127.0.0.1 而非 localhost(后者可被 hosts 文件劫持)。
+    "http://127.0.0.1:8787/*",
+    "http://127.0.0.1:8790/*",
   ],
   content_scripts: [
     {

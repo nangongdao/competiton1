@@ -41,6 +41,28 @@ export function getSelectors(platformId: string): PlatformSelectors {
 }
 
 /**
+ * 选择器合法性校验:只允许常规 CSS 选择器字符,且长度受限。
+ * 防止恶意覆盖把注入目标指向任意元素(如 body)。
+ */
+const SAFE_SELECTOR = /^[#.[\]="'\w\s>:()-]{1,200}$/;
+
+/** 校验单个选择器配置对象的数组字段是否全部为合法选择器。 */
+function isSafeSelectorList(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 10 &&
+    value.every((item) => typeof item === "string" && SAFE_SELECTOR.test(item))
+  );
+}
+
+function isSafeSelectors(sel: unknown): sel is PlatformSelectors {
+  if (!sel || typeof sel !== "object") return false;
+  const s = sel as Record<string, unknown>;
+  return (s.editable === undefined || isSafeSelectorList(s.editable)) &&
+    (s.textarea === undefined || isSafeSelectorList(s.textarea));
+}
+
+/**
  * 应用远程下发的选择器覆盖(逐平台浅合并到默认表)。
  * 用于平台改版后不发版即修复:setting "mpp.selectors" 存 JSON。
  * 非法输入忽略,保持默认,绝不抛错中断注入链路。
@@ -52,7 +74,7 @@ export function applySelectorOverride(raw: string | undefined): void {
     if (!parsed || typeof parsed !== "object") return;
     const merged: Record<string, PlatformSelectors> = { ...DEFAULT_SELECTORS };
     for (const [platformId, sel] of Object.entries(parsed)) {
-      if (!sel || typeof sel !== "object") continue;
+      if (!isSafeSelectors(sel)) continue;
       merged[platformId] = { ...DEFAULT_SELECTORS[platformId], ...sel };
     }
     activeSelectors = merged;

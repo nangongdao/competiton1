@@ -5,10 +5,15 @@
  * 安全:本模块在 server 运行,持密钥;扩展/web 只传 payload。
  * 现实障碍:调用 IP 必须在公众号白名单,本机动态 IP 常调不通 → 失败时返回清晰错误。
  */
-import { WechatApi } from "@mpp/core";
+import { WechatApi, buildIdempotencyKey, contentHashOfPayload, mapWithConcurrency } from "@mpp/core";
 import { TokenCache } from "./token-cache.js";
 import { postJson } from "./http-client.js";
 import { WechatImageHost } from "../imagehost/wechat-host.js";
+
+/** 幂等缓存条目 TTL:超时后允许同一内容重新提交(公众号草稿长期有效,24h 足够防抖)。 */
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+/** 幂等缓存最大条目数,防止长时间运行内存无限增长。 */
+const IDEMPOTENCY_MAX_ENTRIES = 500;
 
 export interface WechatPublishPayload {
   /** core SerializedPayload 的相关字段。 */
@@ -33,12 +38,60 @@ export interface PublishOutcome {
 
 export class WechatPublisher {
   private readonly tokens: TokenCache;
+  /** 幂等缓存:key → { 首次结果, 记录时间 }。相同内容重试直接返回首次结果,不再二次提交平台。 */
+  private readonly receipts = new Map<string, { at: number; outcome: PublishOutcome }>();
 
   constructor(appId: string, secret: string) {
     this.tokens = new TokenCache(appId, secret, postJson);
   }
 
   async publish(payload: WechatPublishPayload): Promise<PublishOutcome> {
+    // 幂等:相同内容 + 相同意图(draft/publish)→ 相同 key。
+    // 若客户端因网络抖动重试,这里命中缓存直接返回首次结果,避免重复草稿/重复发布。
+    const key = this.buildKey(payload);
+    this.pruneIdempotency();
+    const cached = this.receipts.get(key);
+    if (cached) return cached.outcome;
+
+    const outcome = await this.publishOnce(payload);
+    // 失败也缓存:避免对确定失败(如封面缺失)的重复请求反复打微信 API。
+    this.receipts.set(key, { at: Date.now(), outcome });
+    return outcome;
+  }
+
+  /** 幂等缓存清理:过期条目剔除;超上限时丢弃最早记录(简单 FIFO)。 */
+  private pruneIdempotency(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.receipts) {
+      if (now - entry.at > IDEMPOTENCY_TTL_MS) this.receipts.delete(key);
+    }
+    if (this.receipts.size > IDEMPOTENCY_MAX_ENTRIES) {
+      const first = this.receipts.keys().next().value;
+      if (first !== undefined) this.receipts.delete(first);
+    }
+  }
+
+  /** 由 payload 派生幂等键(相同内容 + 意图 → 相同 key)。 */
+  private buildKey(payload: WechatPublishPayload): string {
+    return buildIdempotencyKey(
+      "wechat",
+      contentHashOfPayload(
+        {
+          content: payload.content,
+          mime: "text/html",
+          title: payload.title,
+          summary: payload.summary,
+          tags: [],
+          imageAssetIds: [],
+        },
+        payload.publish === true,
+      ),
+      payload.publish === true ? "publish" : "draft",
+    );
+  }
+
+  /** 实际提交平台(单次副作用)。幂等缓存命中时不进入此方法。 */
+  private async publishOnce(payload: WechatPublishPayload): Promise<PublishOutcome> {
     let token: string;
     try {
       token = await this.tokens.get();
@@ -47,22 +100,26 @@ export class WechatPublisher {
     }
 
     // 正文图重托管:微信过滤外链图,需逐个 uploadimg 换 mp CDN URL,替换 content 内同源 <img src>。
+    // 并发 3(公众号素材接口限流最严)+ 同源去重(同一 URL 只上传一次),图多长文大幅提速。
     let content = payload.content;
     if (payload.bodyImageUrls && payload.bodyImageUrls.length > 0) {
       const imgHost = new WechatImageHost(() => Promise.resolve(token), "image");
-      for (const origUrl of payload.bodyImageUrls) {
+      const uniqueUrls = [...new Set(payload.bodyImageUrls)];
+      const replacements = await mapWithConcurrency(uniqueUrls, 3, async (origUrl) => {
         try {
           const fetched = await fetch(origUrl);
-          if (!fetched.ok) continue;
+          if (!fetched.ok) return null;
           const mime = fetched.headers.get("content-type") ?? "image/png";
           const bytes = new Uint8Array(await fetched.arrayBuffer());
           const uploaded = await imgHost.upload(bytes, "body.png", mime);
-          if (uploaded.url) {
-            content = content.split(origUrl).join(uploaded.url);
-          }
+          return uploaded.url ? { from: origUrl, to: uploaded.url } : null;
         } catch {
           // 单图失败不阻断整篇发布,保留原始 URL(微信会过滤,但不致命)。
+          return null;
         }
+      });
+      for (const rep of replacements) {
+        if (rep) content = content.split(rep.from).join(rep.to);
       }
     }
 

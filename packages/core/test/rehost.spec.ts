@@ -4,6 +4,7 @@ import { syncToPlatforms } from "../src/sync/sync-engine.js";
 import { rehostDocumentAssets } from "../src/assets/rehost-engine.js";
 import { getAdapter } from "../src/adapters/registry.js";
 import type { RehostContext } from "../src/adapters/types.js";
+import type { Asset, Document } from "../src/ir/types.js";
 
 const fixedNow = () => "2026-01-01T00:00:00.000Z";
 const WITH_IMG = "# 标题\n\n正文。\n\n![配图](https://orig.example.com/a.png)";
@@ -52,6 +53,34 @@ describe("rehostDocumentAssets — 资产重托管回填", () => {
     const img = out.assets.find((a) => a.kind === "image");
     expect(img?.rehosted["wechat"]).toBeUndefined();
     expect(img?.source.url).toBe("https://orig.example.com/a.png");
+  });
+
+  it("重托管失败时经 onFailure 上报明细(不阻断整篇)", async () => {
+    const doc = markdownToIR(WITH_IMG).document;
+    const adapter = getAdapter("wechat")!;
+    const failures: Array<{ assetId: string; sourceUrl: string; platformId: string; reason: string }> = [];
+    const ctx: RehostContext = {
+      platformId: "wechat",
+      upload: async () => {
+        throw new Error("图床超时");
+      },
+    };
+    const out = await rehostDocumentAssets(adapter, doc, ctx, undefined, (f) => failures.push(f));
+    // 文档仍被返回(不因单图失败中断),且失败明细被收集。
+    expect(out.assets.find((a) => a.kind === "image")?.source.url).toBe("https://orig.example.com/a.png");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.platformId).toBe("wechat");
+    expect(failures[0]!.reason).toBe("图床超时");
+    expect(failures[0]!.sourceUrl).toBe("https://orig.example.com/a.png");
+  });
+
+  it("图床返回空结果时也上报失败明细", async () => {
+    const doc = markdownToIR(WITH_IMG).document;
+    const adapter = getAdapter("wechat")!;
+    const failures: string[] = [];
+    const ctx: RehostContext = { platformId: "wechat", upload: async () => ({}) };
+    await rehostDocumentAssets(adapter, doc, ctx, undefined, (f) => failures.push(f.reason));
+    expect(failures).toEqual(["图床返回空结果"]);
   });
 
   it("无图文档原样返回", async () => {
@@ -129,5 +158,98 @@ describe("BaseAdapter.rehostAsset — 默认实现", () => {
     expect(result.assetId).toBe(asset.id);
     expect(result.url).toBeUndefined();
     expect(result.mediaId).toBeUndefined();
+  });
+});
+
+describe("rehostDocumentAssets — 并发上传(UPGRADE §1)", () => {
+  /** 构造 N 张不同源图片的文档。 */
+  function docWithImages(count: number): Document {
+    let md = "# 标题\n\n正文。\n";
+    for (let i = 0; i < count; i++) md += `\n![图${i}](https://img.example.com/${i}.png)`;
+    return markdownToIR(md).document;
+  }
+
+  /** 构造慢速 upload,并记录最大并发在途数。 */
+  function slowCtx(platformId: string, delayMs: number, tracker: { active: number; max: number }): RehostContext {
+    return {
+      platformId,
+      upload: async () => {
+        tracker.active++;
+        tracker.max = Math.max(tracker.max, tracker.active);
+        await new Promise((r) => setTimeout(r, delayMs));
+        tracker.active--;
+        return { url: `https://cdn/${platformId}/${tracker.max}.png` };
+      },
+    };
+  }
+
+  it("按 ctx.concurrency 限制并发,全部结果正确回填", async () => {
+    const doc = docWithImages(6);
+    const tracker = { active: 0, max: 0 };
+    const ctx = slowCtx("zhihu", 50, tracker);
+    ctx.concurrency = 2;
+
+    const out = await rehostDocumentAssets(getAdapter("zhihu")!, doc, ctx);
+    expect(tracker.max).toBe(2); // 从未超过并发上限
+    const urls = out.assets.filter((a) => a.kind === "image").map((a) => a.rehosted["zhihu"]?.url);
+    expect(urls.filter(Boolean)).toHaveLength(6); // 全部成功回填
+  });
+
+  it("公众号默认并发 3(限流最严),由限流策略驱动", async () => {
+    const doc = docWithImages(5);
+    const tracker = { active: 0, max: 0 };
+    const out = await rehostDocumentAssets(getAdapter("wechat")!, doc, slowCtx("wechat", 40, tracker));
+    expect(tracker.max).toBe(3); // PLATFORM_RATE_POLICY.wechat.assetConcurrency
+    expect(out.assets.filter((a) => a.kind === "image" && a.rehosted["wechat"])).toHaveLength(5);
+  });
+
+  it("并发 1 = 串行(退化为逐张)", async () => {
+    const doc = docWithImages(4);
+    const tracker = { active: 0, max: 0 };
+    const ctx = slowCtx("zhihu", 30, tracker);
+    ctx.concurrency = 1;
+    await rehostDocumentAssets(getAdapter("zhihu")!, doc, ctx);
+    expect(tracker.max).toBe(1);
+  });
+});
+
+describe("rehostDocumentAssets — 同源去重(UPGRADE §2)", () => {
+  /** 构造两个 assetId 不同但 source 完全相同的图片资产(绕过 AssetTable 解析期去重)。 */
+  function docWithDupSource(): Document {
+    const assets: Asset[] = [
+      { id: "a1", kind: "image", source: { url: "https://same.example.com/logo.png" }, rehosted: {} },
+      { id: "a2", kind: "image", source: { url: "https://same.example.com/logo.png" }, rehosted: {} },
+    ];
+    return { meta: { title: "t", tags: [], lang: "zh" }, blocks: [], assets, overrides: {} };
+  }
+
+  it("同源图片只上传一次,结果共享给所有同源资产", async () => {
+    const doc = docWithDupSource();
+    let calls = 0;
+    const ctx: RehostContext = {
+      platformId: "wechat",
+      upload: async () => {
+        calls++;
+        return { url: "https://mmbiz.qpic.cn/logo.png" };
+      },
+    };
+    const out = await rehostDocumentAssets(getAdapter("wechat")!, doc, ctx);
+    expect(calls).toBe(1); // 同源只传一次
+    expect(out.assets.find((a) => a.id === "a1")?.rehosted["wechat"]?.url).toBe("https://mmbiz.qpic.cn/logo.png");
+    expect(out.assets.find((a) => a.id === "a2")?.rehosted["wechat"]?.url).toBe("https://mmbiz.qpic.cn/logo.png");
+  });
+
+  it("同源上传失败时,所有同源资产都上报失败明细", async () => {
+    const doc = docWithDupSource();
+    const failures: string[] = [];
+    const ctx: RehostContext = {
+      platformId: "wechat",
+      upload: async () => {
+        throw new Error("图床超时");
+      },
+    };
+    await rehostDocumentAssets(getAdapter("wechat")!, doc, ctx, undefined, (f) => failures.push(f.reason));
+    expect(failures).toHaveLength(2); // 两个资产共享同一 source,各自上报
+    expect(failures.every((r) => r === "图床超时")).toBe(true);
   });
 });

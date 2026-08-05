@@ -60,6 +60,50 @@ describe("sanitizeHtml — 净化护栏", () => {
   });
 });
 
+describe("sanitizeHtml — 协议绕过防护(回归)", () => {
+  // 这些载荷在校验器仍为正则版本时全部可绕过(见 UPGRADE_PLAN SEC-01)。
+  const bypassPayloads = [
+    ["data: 伪协议", '<a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">x</a>'],
+    ["Tab 分隔协议", '<a href="java\tscript:alert(1)">x</a>'],
+    ["换行分隔协议", '<a href="java\nscript:alert(1)">x</a>'],
+    ["数字实体冒号", '<a href="javascript&#58;alert(1)">x</a>'],
+    ["十六进制实体", '<a href="javascript&#x3a;alert(1)">x</a>'],
+    ["命名实体冒号", '<a href="javascript&colon;alert(1)">x</a>'],
+    ["style 内 Tab 分隔", '<div style="background:url(java\tscript:alert(1))">x</div>'],
+    ["style behavior", '<div style="behavior:url(#default#time2)">x</div>'],
+    ["大小写混合无引号", '<A HrEf=javascript&colon;alert(1)>x</A>'],
+  ] as const;
+
+  it.each(bypassPayloads)("拦截 %s", (_name, payload) => {
+    const out = sanitizeHtml(payload);
+    // 净化后不得残留任何危险协议/危险 CSS 原型(归一化后再断言,防实体残留)。
+    const normalized = out
+      .replace(/&#(\d+);?/g, (_: string, d: string) => String.fromCharCode(Number(d)))
+      .replace(/&#x([0-9a-f]+);?/gi, (_: string, h: string) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&colon;/gi, ":")
+      .replace(/[^\x20-\x7E]/g, (ch) => (ch.codePointAt(0)! < 32 || ch.codePointAt(0)! === 127 ? "" : ch))
+      .toLowerCase();
+
+    expect(normalized).not.toMatch(/javascript:/);
+    expect(normalized).not.toMatch(/vbscript:/);
+    expect(normalized).not.toMatch(/data:text\/html/);
+    expect(normalized).not.toMatch(/behavior:/);
+    expect(normalized).not.toMatch(/expression/);
+  });
+
+  it("拦截 svg onload 事件处理器载荷", () => {
+    const out = sanitizeHtml('<svg onload="alert(1)"></svg>点我');
+    expect(out).not.toContain("onload");
+    expect(out).not.toContain("<svg");
+  });
+
+  it("拦截 img src 携带的 data:image/svg+xml(SVG 可携带脚本)", () => {
+    const out = sanitizeHtml('<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+PC9zdmc+" />');
+    // svg 被排除,src 清除或移除。
+    expect(out.toLowerCase()).not.toContain("svg+xml");
+  });
+});
+
 describe("sanitizeHtml — 适配器集成", () => {
   it("公众号产物经 BaseAdapter 净化(无脚本残留)", async () => {
     const { getAdapter } = await import("../src/adapters/registry.js");
