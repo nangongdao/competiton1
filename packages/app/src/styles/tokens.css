@@ -1,30 +1,48 @@
 /**
- * 设计 token + 亮暗双主题。
+ * 设计 token —— 「创作光谱」视觉系统。
  *
- * 主题策略:默认跟随系统(prefers-color-scheme),手动切换时在 <html> 上写 data-theme="light|dark" 覆盖。
- * 三层 token:primitive(原色) → semantic(语义) → component(间距/圆角/阴影/字阶)。
+ * 设计理念:把内容创作视为光的折射 —— 一份 Markdown 输入,经多个平台
+ * 折射为不同的光谱呈现。界面以深空画布为底色,用极光渐变、玻璃
+ * 拟态、噪点质感与发光元素营造沉浸式数字艺术体验。
+ *
+ * 结构:primitive(原色) → semantic(语义) → 组件级间距/圆角/阴影/字阶。
  */
 
 /* ===== Primitive 原色 ===== */
 :root {
+  /* 品牌紫(主强调色) */
+  --indigo-300: #b3b3ff;
   --indigo-400: #8d8df3;
-  --indigo-500: #5b5bd6;
-  --indigo-600: #4f4fc7;
+  --indigo-500: #6b6be8;
+  --indigo-600: #5555d6;
   --indigo-700: #4343b0;
 
-  /* 平台品牌色(亮暗通用,卡片内按需取 soft 背景) */
+  /* 极光光谱(多平台折射色,兼作氛围渐变) */
+  --aurora-a: #7c6cff; /* 紫罗兰 */
+  --aurora-b: #22d3ee; /* 青 */
+  --aurora-c: #fb7299; /* 粉 */
+  --aurora-d: #fbbf24; /* 琥珀 */
+
+  /* 平台品牌色 */
   --brand-wechat: #07c160;
-  --brand-zhihu: #0084ff;
+  --brand-zhihu: #2b7bff;
   --brand-bilibili: #fb7299;
   --brand-xiaohongshu: #ff2442;
+  --brand-juejin: #1e80ff;
+  --brand-cnblogs: #005a9c;
+  --brand-csdn: #fc5531;
 
-  /* ===== 字体栈(系统字体,零网络依赖,中文友好) ===== */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
+  /* ===== 字体栈 ===== */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-display: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas,
     "Liberation Mono", Menlo, monospace;
 
-  /* ===== 字阶 ===== */
+  /* ===== 字阶(流体大标题 + 细腻小字) ===== */
+  --fs-3xs: 10px;
+  --fs-2xs: 11px;
   --fs-xs: 12px;
   --fs-sm: 13px;
   --fs-base: 14px;
@@ -32,6 +50,8 @@
   --fs-lg: 18px;
   --fs-xl: 22px;
   --fs-2xl: 28px;
+  --fs-3xl: clamp(28px, 3vw, 38px);
+  --fs-4xl: clamp(38px, 5vw, 56px);
 
   /* ===== 间距(4pt 节奏) ===== */
   --sp-1: 4px;
@@ -41,19 +61,25 @@
   --sp-5: 24px;
   --sp-6: 32px;
   --sp-8: 48px;
+  --sp-10: 64px;
 
-  /* ===== 圆角 ===== */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-xl: 18px;
+  /* ===== 圆角(玻璃感更柔) ===== */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-2xl: 32px;
   --r-full: 999px;
 
-  /* ===== 动效 ===== */
-  --dur-fast: 120ms;
-  --dur: 180ms;
-  --dur-slow: 260ms;
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* ===== 动效(流畅物理曲线) ===== */
+  --dur-fast: 150ms;
+  --dur: 240ms;
+  --dur-slow: 420ms;
+  --dur-slower: 720ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0);
 
   /* ===== z 层级 ===== */
   --z-sticky: 20;
@@ -62,78 +88,99 @@
   --z-toast: 200;
 }
 
-/* ===== 亮色语义(默认) ===== */
+/* ===== 暗色语义(默认,沉浸画布) ===== */
 :root,
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --bg: #f6f7f9;
-  --bg-grad: radial-gradient(1200px 600px at 80% -10%, #eef0fb 0%, transparent 60%);
-  --surface: #ffffff;
-  --surface-2: #f1f3f5;
-  --surface-hover: #f5f6f8;
-  --border: #e4e7eb;
-  --border-strong: #d3d8de;
-
-  --text: #1a1d21;
-  --text-2: #5b6470;
-  /* WCAG AA:#646b76 在 #fff/#f6f7f9/#f1f3f5 上均 ≥4.8:1(次要小字达标)。 */
-  --text-3: #646b76;
-
-  --accent: var(--indigo-500);
-  --accent-hover: var(--indigo-600);
-  --accent-text: #ffffff;
-  --accent-soft: #eeeefb;
-  --accent-ring: rgba(91, 91, 214, 0.4);
-
-  /* 状态文字色加深以满足 soft 背景上 ≥4.5:1(原 green-600/red-500 仅 3.4–4.0)。 */
-  --ok: #0a6e3a;
-  --ok-soft: #e7f7ee;
-  --warn: #a05a00;
-  --warn-soft: #fef4e3;
-  --err: #c2363b;
-  --err-soft: #fdecec;
-
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
-  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.04);
-  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.14), 0 4px 12px rgba(16, 24, 40, 0.08);
-  --scrollbar: #cdd2d9;
-}
-
-/* ===== 暗色语义(手动) ===== */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #0d0e12;
-  --bg-grad: radial-gradient(1200px 600px at 80% -10%, rgba(91, 91, 214, 0.12) 0%, transparent 55%);
-  --surface: #16181d;
-  --surface-2: #1d2027;
-  --surface-hover: #21242c;
-  --border: #282c34;
-  --border-strong: #383d47;
+  /* 深空底色 + 极光氛围 */
+  --bg: #07080d;
+  --bg-2: #0c0e16;
+  --bg-grad:
+    radial-gradient(1100px 520px at 78% -8%, rgba(124, 108, 255, 0.16) 0%, transparent 58%),
+    radial-gradient(900px 460px at 8% 108%, rgba(34, 211, 238, 0.1) 0%, transparent 55%),
+    radial-gradient(700px 420px at 48% 46%, rgba(251, 114, 153, 0.06) 0%, transparent 60%),
+    linear-gradient(180deg, #0a0b12 0%, #07080d 100%);
 
-  --text: #e7e9ec;
-  --text-2: #9aa1ac;
-  /* WCAG AA:#888f9a 在 surface/surface-2 上均 ≥5:1。 */
-  --text-3: #888f9a;
+  /* 玻璃表面 */
+  --surface: rgba(255, 255, 255, 0.045);
+  --surface-solid: #12141d;
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-hover: rgba(255, 255, 255, 0.09);
+  --surface-glass: rgba(18, 20, 29, 0.62);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text: #f2f3f7;
+  --text-2: #a6adbd;
+  --text-3: #6f7690;
 
   --accent: var(--indigo-400);
-  --accent-hover: #a0a0f6;
-  --accent-text: #0d0e12;
-  --accent-soft: rgba(124, 124, 240, 0.14);
-  --accent-ring: rgba(141, 141, 243, 0.5);
+  --accent-hover: var(--indigo-300);
+  --accent-text: #0a0b12;
+  --accent-soft: rgba(141, 141, 243, 0.14);
+  --accent-ring: rgba(141, 141, 243, 0.38);
 
-  --ok: #3fb950;
-  --ok-soft: rgba(63, 185, 80, 0.14);
-  --warn: #f0b429;
-  --warn-soft: rgba(240, 180, 41, 0.14);
-  --err: #ff6b6b;
-  --err-soft: rgba(255, 107, 107, 0.14);
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.13);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.13);
+  --err: #fb7185;
+  --err-soft: rgba(251, 113, 133, 0.13);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.6);
-  --scrollbar: #383d47;
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55), 0 6px 18px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 0 1px var(--accent-ring), 0 8px 32px rgba(109, 108, 235, 0.28);
+
+  --scrollbar: rgba(255, 255, 255, 0.18);
+  --noise-opacity: 0.05;
+}
+
+/* ===== 亮色语义(手动) ===== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f5f4fb;
+  --bg-2: #ffffff;
+  --bg-grad:
+    radial-gradient(1100px 520px at 78% -8%, rgba(124, 108, 255, 0.14) 0%, transparent 58%),
+    radial-gradient(900px 460px at 8% 108%, rgba(34, 211, 238, 0.1) 0%, transparent 55%),
+    radial-gradient(700px 420px at 48% 46%, rgba(251, 114, 153, 0.07) 0%, transparent 60%),
+    linear-gradient(180deg, #f8f7fd 0%, #f5f4fb 100%);
+
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-solid: #ffffff;
+  --surface-2: rgba(15, 18, 30, 0.04);
+  --surface-hover: rgba(15, 18, 30, 0.07);
+  --surface-glass: rgba(255, 255, 255, 0.66);
+  --border: rgba(15, 18, 30, 0.1);
+  --border-strong: rgba(15, 18, 30, 0.18);
+
+  --text: #171a26;
+  --text-2: #4d5468;
+  --text-3: #7c83a0;
+
+  --accent: var(--indigo-600);
+  --accent-hover: var(--indigo-500);
+  --accent-text: #ffffff;
+  --accent-soft: rgba(85, 85, 214, 0.1);
+  --accent-ring: rgba(85, 85, 214, 0.28);
+
+  --ok: #0a6e3a;
+  --ok-soft: #e4f7ec;
+  --warn: #9a5b00;
+  --warn-soft: #fdf3dd;
+  --err: #c2363b;
+  --err-soft: #fdecec;
+
+  --shadow-sm: 0 2px 8px rgba(23, 26, 38, 0.06);
+  --shadow-md: 0 12px 32px rgba(23, 26, 38, 0.1), 0 2px 6px rgba(23, 26, 38, 0.05);
+  --shadow-lg: 0 28px 64px rgba(23, 26, 38, 0.16), 0 6px 16px rgba(23, 26, 38, 0.08);
+  --shadow-glow: 0 0 0 1px var(--accent-ring), 0 10px 30px rgba(85, 85, 214, 0.18);
+
+  --scrollbar: rgba(23, 26, 38, 0.22);
+  --noise-opacity: 0.04;
 }
 
 /* ===== 系统暗色兜底(未手动设 data-theme 时) ===== */
@@ -141,35 +188,46 @@
   :root:not([data-theme]) {
     color-scheme: dark;
 
-    --bg: #0d0e12;
-    --bg-grad: radial-gradient(1200px 600px at 80% -10%, rgba(91, 91, 214, 0.12) 0%, transparent 55%);
-    --surface: #16181d;
-    --surface-2: #1d2027;
-    --surface-hover: #21242c;
-    --border: #282c34;
-    --border-strong: #383d47;
+    --bg: #07080d;
+    --bg-2: #0c0e16;
+    --bg-grad:
+      radial-gradient(1100px 520px at 78% -8%, rgba(124, 108, 255, 0.16) 0%, transparent 58%),
+      radial-gradient(900px 460px at 8% 108%, rgba(34, 211, 238, 0.1) 0%, transparent 55%),
+      radial-gradient(700px 420px at 48% 46%, rgba(251, 114, 153, 0.06) 0%, transparent 60%),
+      linear-gradient(180deg, #0a0b12 0%, #07080d 100%);
 
-    --text: #e7e9ec;
-    --text-2: #9aa1ac;
-    --text-3: #888f9a;
+    --surface: rgba(255, 255, 255, 0.045);
+    --surface-solid: #12141d;
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --surface-hover: rgba(255, 255, 255, 0.09);
+    --surface-glass: rgba(18, 20, 29, 0.62);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+
+    --text: #f2f3f7;
+    --text-2: #a6adbd;
+    --text-3: #6f7690;
 
     --accent: var(--indigo-400);
-    --accent-hover: #a0a0f6;
-    --accent-text: #0d0e12;
-    --accent-soft: rgba(124, 124, 240, 0.14);
-    --accent-ring: rgba(141, 141, 243, 0.5);
+    --accent-hover: var(--indigo-300);
+    --accent-text: #0a0b12;
+    --accent-soft: rgba(141, 141, 243, 0.14);
+    --accent-ring: rgba(141, 141, 243, 0.38);
 
-    --ok: #3fb950;
-    --ok-soft: rgba(63, 185, 80, 0.14);
-    --warn: #f0b429;
-    --warn-soft: rgba(240, 180, 41, 0.14);
-    --err: #ff6b6b;
-    --err-soft: rgba(255, 107, 107, 0.14);
+    --ok: #34d399;
+    --ok-soft: rgba(52, 211, 153, 0.13);
+    --warn: #fbbf24;
+    --warn-soft: rgba(251, 191, 36, 0.13);
+    --err: #fb7185;
+    --err-soft: rgba(251, 113, 133, 0.13);
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
-    --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.6);
-    --scrollbar: #383d47;
+    --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55), 0 6px 18px rgba(0, 0, 0, 0.35);
+    --shadow-glow: 0 0 0 1px var(--accent-ring), 0 8px 32px rgba(109, 108, 235, 0.28);
+
+    --scrollbar: rgba(255, 255, 255, 0.18);
+    --noise-opacity: 0.05;
   }
 }
 
@@ -184,6 +242,11 @@ body {
   padding: 0;
 }
 
+html {
+  /* 背景粒子层滚动固定 */
+  min-height: 100%;
+}
+
 body {
   background: var(--bg);
   background-image: var(--bg-grad);
@@ -191,9 +254,22 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--fs-base);
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+/* 数字纹理噪点覆盖层(经 body::after 注入,营造印刷质感) */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
 }
 
 /* 键盘可见焦点环(鼠标点击不显示) */
@@ -215,15 +291,23 @@ body {
   width: 10px;
   height: 10px;
 }
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
 *::-webkit-scrollbar-thumb {
   background: var(--scrollbar);
   border-radius: var(--r-full);
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--text-3);
   background-clip: padding-box;
+}
+
+::selection {
+  background: var(--accent-ring);
+  color: var(--text);
 }
 
 /* 尊重减少动效偏好 */

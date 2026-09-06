@@ -43,10 +43,44 @@ export class IdbDraftStore implements DraftStore {
   private dbPromise: Promise<IDBPDatabase>;
 
   constructor() {
-    this.dbPromise = openDB(DB_NAME, 1, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(DRAFTS)) db.createObjectStore(DRAFTS, { keyPath: "id" });
-        if (!db.objectStoreNames.contains(HISTORY)) db.createObjectStore(HISTORY, { keyPath: "id" });
+    this.dbPromise = openDB(DB_NAME, 9, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          if (!db.objectStoreNames.contains(DRAFTS)) db.createObjectStore(DRAFTS, { keyPath: "id" });
+          if (!db.objectStoreNames.contains(HISTORY)) db.createObjectStore(HISTORY, { keyPath: "id" });
+        }
+        if (oldVersion < 2) {
+          if (!db.objectStoreNames.contains("publish-jobs")) db.createObjectStore("publish-jobs", { keyPath: "id" });
+        }
+        if (oldVersion < 3) {
+          if (!db.objectStoreNames.contains("scheduled-tasks")) db.createObjectStore("scheduled-tasks", { keyPath: "id" });
+          if (!db.objectStoreNames.contains("performance-records")) db.createObjectStore("performance-records", { keyPath: "id" });
+        }
+        if (oldVersion < 4) {
+          if (!db.objectStoreNames.contains("versions")) {
+            const store = db.createObjectStore("versions", { keyPath: "id" });
+            store.createIndex("by-draft", "draftId");
+          }
+        }
+        if (oldVersion < 5) {
+          if (!db.objectStoreNames.contains("accounts")) db.createObjectStore("accounts", { keyPath: "id" });
+          if (!db.objectStoreNames.contains("weekly-reports")) db.createObjectStore("weekly-reports", { keyPath: "id" });
+        }
+        if (oldVersion < 6) {
+          if (!db.objectStoreNames.contains("weekly-reports")) db.createObjectStore("weekly-reports", { keyPath: "id" });
+        }
+        if (oldVersion < 7) {
+          // COLLAB-01:本地共享库(桌面端/扩展接入,见 shared-store.ts)。
+          if (!db.objectStoreNames.contains("shared-items")) db.createObjectStore("shared-items");
+        }
+        if (oldVersion < 8) {
+          // ROADMAP_V5 Phase 1:发布队列(稍后发布,与 scheduled-tasks 并列)。
+          if (!db.objectStoreNames.contains("publish-queue")) db.createObjectStore("publish-queue", { keyPath: "id" });
+        }
+        if (oldVersion < 9) {
+          // ROADMAP_V5 Phase 2:发布批次(一次排队多篇)。
+          if (!db.objectStoreNames.contains("publish-batches")) db.createObjectStore("publish-batches", { keyPath: "id" });
+        }
       },
     });
   }
@@ -115,6 +149,6 @@ export class ChromeDraftStore implements DraftStore {
 }
 
 /** 按环境选择存储实现。 */
-export function createDraftStore(env: "web" | "extension"): DraftStore {
+export function createDraftStore(env: "web" | "extension" | "desktop"): DraftStore {
   return env === "extension" ? new ChromeDraftStore() : new IdbDraftStore();
 }

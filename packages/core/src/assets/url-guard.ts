@@ -18,7 +18,8 @@ const BLOCKED_IPV4_RANGES: ReadonlyArray<readonly [string, string]> = [
   ["224.0.0.0", "255.255.255.255"], // 组播 + 保留
 ];
 
-function ipv4ToInt(ip: string): number | null {
+/** IPv4 字符串转 32 位整数(非法输入返回 null)。 */
+export function ipv4ToInt(ip: string): number | null {
   const parts = ip.split(".");
   if (parts.length !== 4) return null;
 
@@ -29,6 +30,38 @@ function ipv4ToInt(ip: string): number | null {
     result = result * 256 + octet;
   }
   return result;
+}
+
+/**
+ * 判断 IP 是否属于禁止访问的私网/回环/保留/云元数据地址。
+ *
+ * 供服务端 SecureImageFetcher 在 DNS 解析后对每一跳对端 IP 做二次校验使用,
+ * 覆盖 DNS rebinding / 域名解析到内网 / 重定向到内网等 core 字面量检查够不到的场景。
+ *
+ * @param ip IPv4 或 IPv6 地址(无方括号)
+ * @returns 是否应拒绝访问
+ */
+export function isBlockedIp(ip: string): boolean {
+  const trimmed = ip.trim();
+
+  // IPv6 回环与内网([::1]、[fc00::/7] ULA、[fe80::/10] 链路本地)。
+  if (trimmed.includes(":")) {
+    const v6 = trimmed.toLowerCase();
+    if (v6 === "::1" || v6 === "::" || /^f[cd]/i.test(v6) || /^fe[89ab]/i.test(v6)) return true;
+    // IPv4-mapped IPv6(::ffff:1.2.3.4)落到 IPv4 判断。
+    const mapped = /^::ffff:(.+)$/i.exec(v6);
+    if (mapped) return isBlockedIp(mapped[1]!);
+    return false;
+  }
+
+  const ipInt = ipv4ToInt(trimmed);
+  if (ipInt === null) return false; // 非 IP(可能是主机名),交给 DNS 解析层判断
+  for (const [start, end] of BLOCKED_IPV4_RANGES) {
+    const s = ipv4ToInt(start)!;
+    const e = ipv4ToInt(end)!;
+    if (ipInt >= s && ipInt <= e) return true;
+  }
+  return false;
 }
 
 /**
@@ -59,21 +92,14 @@ export function isSafeImageUrl(rawUrl: string): { safe: boolean; reason?: string
   // IPv6 回环与内网([::1]、[fc00::/7] ULA、[fe80::/10] 链路本地)。
   if (hostname.startsWith("[")) {
     const v6 = hostname.slice(1, -1);
-    if (v6 === "::1" || /^f[cd]/i.test(v6) || /^fe[89ab]/i.test(v6)) {
-      return { safe: false, reason: "禁止访问 IPv6 内网地址" };
+    if (isBlockedIp(v6)) {
+      return { safe: false, reason: `禁止访问 IPv6 内网地址 ${v6}` };
     }
   }
 
   // IPv4 字面量。
-  const ipInt = ipv4ToInt(hostname);
-  if (ipInt !== null) {
-    for (const [start, end] of BLOCKED_IPV4_RANGES) {
-      const s = ipv4ToInt(start)!;
-      const e = ipv4ToInt(end)!;
-      if (ipInt >= s && ipInt <= e) {
-        return { safe: false, reason: `禁止访问内网地址 ${hostname}` };
-      }
-    }
+  if (isBlockedIp(hostname)) {
+    return { safe: false, reason: `禁止访问内网地址 ${hostname}` };
   }
 
   return { safe: true };

@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, FilePlus2, Trash2, History, Check, AlertTriangle, FileText } from "lucide-react";
+import { X, FilePlus2, Trash2, History, Check, AlertTriangle, FileText, Download, Upload, Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
 import type { Draft, HistoryEntry } from "../storage/draft-store.js";
 import { formatTime } from "./format.js";
 
@@ -12,6 +13,10 @@ interface Props {
   onNew: () => void;
   onLoad: (id: string) => void;
   onDelete: (id: string) => void;
+  /** DATA-01:导出全部数据为 JSON。 */
+  onExport: () => Promise<{ ok: boolean; error?: string }>;
+  /** DATA-01:从 JSON 导入。 */
+  onImport: (raw: string) => Promise<{ ok: boolean; error?: string; counts?: { drafts: number; history: number } }>;
 }
 
 /** 草稿与发布历史抽屉。 */
@@ -24,7 +29,41 @@ export function DraftsDrawer({
   onNew,
   onLoad,
   onDelete,
+  onExport,
+  onImport,
 }: Props) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const handleExport = async () => {
+    setBusy(true);
+    setMsg(null);
+    const r = await onExport();
+    setMsg(r.ok ? { kind: "ok", text: "已导出数据文件" } : { kind: "err", text: r.error ?? "导出失败" });
+    setBusy(false);
+  };
+
+  const handleImportFile = async (file: File) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const raw = await file.text();
+      const r = await onImport(raw);
+      if (r.ok) {
+        const c = r.counts;
+        setMsg({ kind: "ok", text: `导入成功:新增 ${c?.drafts ?? 0} 条草稿、${c?.history ?? 0} 条历史` });
+      } else {
+        setMsg({ kind: "err", text: r.error ?? "导入失败" });
+      }
+    } catch {
+      setMsg({ kind: "err", text: "读取文件失败" });
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -32,7 +71,7 @@ export function DraftsDrawer({
         <Dialog.Content className="drawer" aria-describedby={undefined}>
           <div className="drawer-header">
             <Dialog.Title className="drawer-title">
-              <FileText size={18} aria-hidden style={{ verticalAlign: "-3px", marginRight: 6 }} />
+              <FileText size={18} aria-hidden style={{ verticalAlign: "-3px", marginRight: 8 }} />
               草稿与历史
             </Dialog.Title>
             <Dialog.Close asChild>
@@ -43,10 +82,36 @@ export function DraftsDrawer({
           </div>
 
           <div className="drawer-body">
-            <button type="button" className="btn btn-primary" onClick={onNew}>
-              <FilePlus2 size={16} aria-hidden />
-              新建草稿
-            </button>
+            <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-primary" onClick={onNew}>
+                <FilePlus2 size={16} aria-hidden />
+                新建草稿
+              </button>
+              <button type="button" className="btn" onClick={() => void handleExport()} disabled={busy}>
+                {busy ? <Loader2 size={15} className="spinner" aria-hidden /> : <Download size={15} aria-hidden />}
+                导出数据
+              </button>
+              <button type="button" className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>
+                <Upload size={15} aria-hidden />
+                导入数据
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".json,application/json"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleImportFile(f);
+                }}
+              />
+            </div>
+            {msg && (
+              <div className={msg.kind === "ok" ? "data-msg data-msg-ok" : "data-msg data-msg-err"}>
+                {msg.kind === "ok" ? <Check size={13} aria-hidden /> : <AlertTriangle size={13} aria-hidden />}
+                {msg.text}
+              </div>
+            )}
 
             <section>
               <div className="card-trigger-meta" style={{ marginBottom: "var(--sp-2)" }}>

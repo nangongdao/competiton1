@@ -4,6 +4,7 @@ import { X, Sparkles, KeyRound, Image, Send } from "lucide-react";
 import type { EnhanceOptions } from "@mpp/core";
 import type { PlatformAutomationModes, WechatPublishMode } from "../state/store.js";
 import type { AutomationPublishMode } from "../bridge/types.js";
+import { ServiceStatusPanel } from "./ServiceStatusPanel.js";
 
 interface LlmSettings {
   baseUrl: string;
@@ -15,16 +16,26 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   llm: LlmSettings;
+  /** 是否持久化 LLM key(SEC-04:默认仅会话保存)。 */
+  persistLlmKey: boolean;
   enhance: EnhanceOptions;
   ready: boolean;
   serverUrl: string;
   runnerUrl: string;
+  serverToken: string;
+  runnerToken: string;
   wechatPublishMode: WechatPublishMode;
   automationModes: PlatformAutomationModes;
   onLlm: (patch: Partial<LlmSettings>) => void;
+  /** 切换 LLM key 持久化(SEC-04)。 */
+  onPersistLlmKey: (persist: boolean) => void;
+  /** 一键清除 LLM key(SEC-04)。 */
+  onClearLlmKey: () => void;
   onEnhance: (patch: Partial<EnhanceOptions>) => void;
   onServerUrl: (url: string) => void;
   onRunnerUrl: (url: string) => void;
+  onServerToken: (token: string) => void;
+  onRunnerToken: (token: string) => void;
   onWechatPublishMode: (mode: WechatPublishMode) => void;
   onAutomationMode: (platformId: string, mode: AutomationPublishMode) => void;
 }
@@ -36,21 +47,28 @@ const ENHANCE_ITEMS: { key: keyof EnhanceOptions; title: string; desc: string }[
   { key: "rewrite", title: "全文润色", desc: "优化 HTML 平台正文表达" },
 ];
 
-/** AI 设置抽屉:LLM 配置(OpenAI 兼容)+ 增强开关 + 图床配置。apiKey 仅存本地。 */
+/** AI 设置抽屉:LLM 配置(OpenAI 兼容)+ 增强开关 + 图床配置。apiKey 默认仅会话保存(SEC-04)。 */
 export function SettingsDrawer({
   open,
   onOpenChange,
   llm,
+  persistLlmKey,
   enhance,
   ready,
   serverUrl,
   runnerUrl,
+  serverToken,
+  runnerToken,
   wechatPublishMode,
   automationModes,
   onLlm,
+  onPersistLlmKey,
+  onClearLlmKey,
   onEnhance,
   onServerUrl,
   onRunnerUrl,
+  onServerToken,
+  onRunnerToken,
   onWechatPublishMode,
   onAutomationMode,
 }: Props) {
@@ -61,7 +79,7 @@ export function SettingsDrawer({
         <Dialog.Content className="drawer" aria-describedby={undefined}>
           <div className="drawer-header">
             <Dialog.Title className="drawer-title">
-              <Sparkles size={18} aria-hidden style={{ verticalAlign: "-3px", marginRight: 6 }} />
+              <Sparkles size={18} aria-hidden style={{ verticalAlign: "-3px", marginRight: 8 }} />
               AI 风格优化
             </Dialog.Title>
             <Dialog.Close asChild>
@@ -87,7 +105,7 @@ export function SettingsDrawer({
             <label className="field">
               <span className="field-label">
                 <KeyRound size={12} aria-hidden style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                API Key（仅存本地，不入库）
+                API Key（{persistLlmKey ? "已持久化" : "仅本次会话"}）
               </span>
               <input
                 className="field-input"
@@ -101,6 +119,31 @@ export function SettingsDrawer({
                 在模型平台控制台创建，如 platform.openai.com/api-keys
               </small>
             </label>
+            <div className="switch-row">
+              <span className="switch-row-label">
+                <span className="switch-row-title">持久化保存 API Key</span>
+                <span className="switch-row-desc">
+                  默认仅本次会话保存，关闭标签页即清除；开启后写入本地存储
+                </span>
+              </span>
+              <Switch.Root
+                className="switch"
+                checked={persistLlmKey}
+                onCheckedChange={(v) => onPersistLlmKey(v)}
+                aria-label="持久化保存 API Key"
+              >
+                <Switch.Thumb className="switch-thumb" />
+              </Switch.Root>
+            </div>
+            <button
+              type="button"
+              className="btn"
+              style={{ alignSelf: "flex-start" }}
+              onClick={onClearLlmKey}
+            >
+              <KeyRound size={13} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
+              清除已保存的 API Key
+            </button>
             <label className="field">
               <span className="field-label">模型</span>
               <input
@@ -136,6 +179,10 @@ export function SettingsDrawer({
               ))}
             </div>
 
+            {/* 服务依赖状态(UX-01) */}
+            <div style={{ borderTop: "1px solid var(--border)", margin: 0 }} />
+            <ServiceStatusPanel serverUrl={serverUrl} runnerUrl={runnerUrl} />
+
             {/* 图床配置 */}
             <div style={{ borderTop: "1px solid var(--border)", margin: 0 }} />
             <h3 style={{ fontSize: "var(--fs-sm)", fontWeight: 650, margin: 0, display: "flex", alignItems: "center", gap: "var(--sp-1)" }}>
@@ -152,6 +199,23 @@ export function SettingsDrawer({
               />
               <small className="field-hint">
                 图片上传服务地址，本地开发默认 http://127.0.0.1:8787
+              </small>
+            </label>
+            <label className="field">
+              <span className="field-label">
+                <KeyRound size={12} aria-hidden style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                Server 访问令牌（可选）
+              </span>
+              <input
+                className="field-input"
+                type="password"
+                value={serverToken}
+                placeholder="server 启动时生成的 X-MPP-Token"
+                autoComplete="off"
+                onChange={(e) => onServerToken(e.target.value)}
+              />
+              <small className="field-hint">
+                仅存本地；server 已启用鉴权时需填写，否则副作用路由返回 401。
               </small>
             </label>
 
@@ -193,11 +257,35 @@ export function SettingsDrawer({
                 启动 `npm run runner` 后，知乎/B站/小红书可用本机浏览器登录态执行真实网页发布。
               </small>
             </label>
+            <label className="field">
+              <span className="field-label">
+                <KeyRound size={12} aria-hidden style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                Runner 访问令牌（可选）
+              </span>
+              <input
+                className="field-input"
+                type="password"
+                value={runnerToken}
+                placeholder="runner 启动时生成的 X-MPP-Token"
+                autoComplete="off"
+                onChange={(e) => onRunnerToken(e.target.value)}
+              />
+              <small className="field-hint">
+                仅存本地；runner 已启用鉴权时需填写，否则自动化路由返回 401。
+              </small>
+            </label>
             {[
               ["zhihu", "知乎"],
               ["bilibili", "B站"],
               ["xiaohongshu", "小红书"],
+              ["juejin", "掘金"],
+              ["cnblogs", "博客园"],
               ["wechat", "公众号网页兜底"],
+              ["weibo", "微博"],
+              ["toutiao", "头条号"],
+              ["douyin", "抖音"],
+              ["kuaishou", "快手"],
+              ["shipinhao", "视频号"],
             ].map(([id, name]) => (
               <label className="field" key={id}>
                 <span className="field-label">{name}</span>

@@ -1,6 +1,6 @@
 {
   "name": "@mpp/runner",
-  "version": "0.1.0",
+  "version": "0.11.0-rc.1",
   "private": true,
   "type": "module",
   "description": "本机 Playwright 自动化发布 runner",

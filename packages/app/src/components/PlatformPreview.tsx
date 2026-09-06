@@ -1,27 +1,41 @@
 import type { PlatformResult, ValidationIssue } from "@mpp/core";
-import { memo, useState, useCallback } from "react";
+import { compareArtifact, type ArtifactComparison } from "@mpp/core";
+import { memo, useState, useCallback, useMemo } from "react";
 import DOMPurify from "dompurify";
-import { XCircle, AlertTriangle, Info, CheckCircle2, ListChecks, Copy, Check, Loader2, Gauge } from "lucide-react";
-import { platformColor } from "./platform-meta.js";
+import { XCircle, AlertTriangle, Info, CheckCircle2, ListChecks, Copy, Check, Loader2, Gauge, GitCompare, ChevronDown, ChevronUp } from "lucide-react";
+import { platformColor, platformIcon } from "./platform-meta.js";
 import type { PlatformBridge } from "../bridge/types.js";
 
 interface Props {
   result: PlatformResult;
   bridge?: PlatformBridge | null;
+  /** 源 Markdown(用于「对比」tab:产物 vs 源文)。 */
+  sourceMarkdown?: string;
 }
 
-type Tab = "preview" | "source" | "issues";
+type Tab = "preview" | "source" | "issues" | "compare";
 type HandoffState = "idle" | "loading" | "ok" | "fail";
 
 // 单平台预览:渲染序列化产物 + 校验提示 + 发布指引。
 // memo:仅当该平台的 result 引用变化才重渲染(避免父级全量订阅导致四卡齐刷)。
-export const PlatformPreview = memo(function PlatformPreview({ result, bridge }: Props) {
+export const PlatformPreview = memo(function PlatformPreview({ result, bridge, sourceMarkdown }: Props) {
   const [tab, setTab] = useState<Tab>("preview");
+  const [collapsed, setCollapsed] = useState(false);
   const [handoffState, setHandoffState] = useState<HandoffState>("idle");
   const [handoffMsg, setHandoffMsg] = useState("");
   const payload = result.artifact?.payload;
   const color = platformColor(result.platformId);
 
+  // 平台产物对比:源文(markdown)vs 产物(去标签纯文本)。(Hook 必须无条件调用)
+  const comparison = useMemo<ArtifactComparison | null>(() => {
+    const p = result.artifact?.payload;
+    if (!sourceMarkdown || !p) return null;
+    try {
+      return compareArtifact(result.platformId, sourceMarkdown, p.mime, p.content);
+    } catch {
+      return null;
+    }
+  }, [sourceMarkdown, result]);
   // 辅助注入/复制:平台产物 → 剪贴板(best-effort 注入仅扩展环境可用)。
   const handleHandoff = useCallback(async () => {
     if (!payload || !bridge) return;
@@ -69,6 +83,7 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
     { key: "preview", label: "预览" },
     { key: "source", label: "源码" },
     { key: "issues", label: `校验 (${issues.length})` },
+    { key: "compare", label: "对比" },
   ];
   const tabBase = `pp-${result.platformId}`;
 
@@ -87,6 +102,12 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
     <div className="platform-preview" style={{ ["--platform-color" as string]: color }}>
       <div className="preview-head">
         <span className="preview-name">
+          <span className="preview-name-icon" aria-hidden>
+            {(() => {
+              const Icon = platformIcon(result.platformId);
+              return <Icon size={15} />;
+            })()}
+          </span>
           <span className="preview-name-dot" aria-hidden />
           {result.platformName}
         </span>
@@ -114,7 +135,7 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
               </span>
             </button>
           )}
-          {payload.mime === "text/html" ? "HTML" : "纯文本"} · {countChars(payload)} 字
+          {payload.mime === "text/html" ? "HTML" : payload.mime === "text/markdown" ? "Markdown" : "纯文本"} · {countChars(payload)} 字
           {errCount > 0 && (
             <span className="tag tag-err">
               <XCircle size={11} aria-hidden />
@@ -145,8 +166,19 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
             </span>
           )}
         </span>
+        <button
+          type="button"
+          className="btn-icon preview-collapse"
+          onClick={() => setCollapsed((v) => !v)}
+          aria-label={collapsed ? "展开预览" : "收起预览"}
+          title={collapsed ? "展开预览" : "收起预览"}
+        >
+          {collapsed ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
+        </button>
       </div>
 
+      {!collapsed && (
+        <>
       <div className="preview-tabs" role="tablist" aria-label={`${result.platformName}预览视图`}>
         {tabs.map((t) => (
           <button
@@ -181,7 +213,10 @@ export const PlatformPreview = memo(function PlatformPreview({ result, bridge }:
             suggestions={result.quality?.suggestions ?? []}
           />
         )}
+        {tab === "compare" && <CompareTab comparison={comparison} />}
       </div>
+        </>
+      )}
     </div>
   );
 });
@@ -193,8 +228,8 @@ function PreviewRender({
   payload: NonNullable<PlatformResult["artifact"]>["payload"];
   platformId: string;
 }) {
-  if (payload.mime === "text/plain") {
-    // 小红书:模拟手机屏纯文本展示。
+  if (payload.mime === "text/plain" || payload.mime === "text/markdown") {
+    // 小红书/掘金:模拟移动端/文本展示。
     return (
       <div className="phone-frame">
         <div className="xhs-title">{payload.title}</div>
@@ -275,6 +310,47 @@ function IssueList({
 }
 
 function countChars(payload: NonNullable<PlatformResult["artifact"]>["payload"]): number {
-  const text = payload.mime === "text/plain" ? payload.content : payload.content.replace(/<[^>]+>/g, "");
+  const text = payload.mime === "text/html" ? payload.content.replace(/<[^>]+>/g, "") : payload.content;
   return [...text].length;
+}
+
+/** 「对比」tab:源文 vs 平台产物的降级差异。 */
+function CompareTab({ comparison }: { comparison: ArtifactComparison | null }) {
+  if (!comparison) {
+    return (
+      <div className="issue-list">
+        <div className="issue-ok">
+          <GitCompare size={15} aria-hidden />
+          需要源文才能对比（当前无 Markdown 内容）。
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="compare-view">
+      <div className="compare-notes">
+        {comparison.notes.map((n, idx) => (
+          <div key={idx} className="compare-note">
+            <GitCompare size={13} aria-hidden />
+            {n}
+          </div>
+        ))}
+        <div className="compare-stats">
+          <span className="compare-stat-added">+{comparison.added} 行</span>
+          <span className="compare-stat-removed">-{comparison.removed} 行</span>
+        </div>
+      </div>
+      {comparison.identical ? (
+        <div className="version-diff-identical">产物与源文一致，无降级。</div>
+      ) : (
+        <pre className="compare-body">
+          {comparison.ops.map((op, idx) => {
+            if (op.type === "equal") return <span key={idx} className="diff-equal">{op.line}</span>;
+            if (op.type === "insert") return <span key={idx} className="diff-insert">{op.line}</span>;
+            return <span key={idx} className="diff-delete">{op.line}</span>;
+          })}
+        </pre>
+      )}
+    </div>
+  );
 }

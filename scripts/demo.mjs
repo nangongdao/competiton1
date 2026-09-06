@@ -1,5 +1,5 @@
 // 零密钥、零扩展的完整闭环演示。
-// 读取样例 Markdown → 经 core 适配四平台 → 模拟发布 → 产物写入 dist/demo/。
+// 读取样例 Markdown → 经 core 适配多平台 → 模拟发布 → 产物写入 dist/demo/。
 // 一条命令(npm run demo)即可证明核心链路闭环,无需任何 API key 或浏览器扩展。
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const OUT = join(ROOT, "dist", "demo");
 
-const EXT = { wechat: "html", zhihu: "html", bilibili: "html", xiaohongshu: "txt" };
+const EXT = { wechat: "html", zhihu: "html", bilibili: "html", xiaohongshu: "txt", juejin: "md", csdn: "md", cnblogs: "md" };
 
 async function main() {
   await mkdir(OUT, { recursive: true });
@@ -28,7 +28,7 @@ async function main() {
   console.log(`\n📄 已解析文档:《${document.meta.title}》`);
   console.log(`   ${document.blocks.length} 个内容块,${document.assets.length} 个资产\n`);
 
-  const platforms = ["wechat", "zhihu", "bilibili", "xiaohongshu"];
+  const platforms = ["wechat", "zhihu", "bilibili", "xiaohongshu", "juejin", "cnblogs", "csdn"];
   const now = () => new Date().toISOString();
 
   // 演示图片重托管:注入一个内存图床(把原始图 URL 映射为各平台图床 URL)。
@@ -119,7 +119,7 @@ function sev(s) {
 }
 
 function countChars(payload) {
-  const text = payload.mime === "text/plain" ? payload.content : payload.content.replace(/<[^>]+>/g, "");
+  const text = payload.mime === "text/html" ? payload.content.replace(/<[^>]+>/g, "") : payload.content;
   return [...text].length;
 }
 

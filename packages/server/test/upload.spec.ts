@@ -3,12 +3,21 @@ import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import type { ImageHost } from "@mpp/core";
 import { registerUploadRoutes } from "../src/routes/upload.js";
+import type { LocalImageStoreConfig } from "../src/config.js";
+
+/** 测试用 localStore 配置(不触发配额)。 */
+const STORE: LocalImageStoreConfig = {
+  maxTotalBytes: 200 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024,
+  retentionMs: 7 * 24 * 60 * 60 * 1000,
+  cleanupEnabled: false,
+};
 
 /** 构造注入了 mock 图床的测试 server。 */
 async function buildApp(host: ImageHost) {
   const app = Fastify();
   await app.register(multipart);
-  registerUploadRoutes(app, host);
+  registerUploadRoutes(app, host, { localStore: STORE } as never);
   await app.ready();
   return app;
 }
@@ -54,7 +63,17 @@ describe("POST /upload", () => {
     const { body, headers } = multipartBody("a.txt", "text/plain", "hello");
     const res = await app.inject({ method: "POST", url: "/upload", payload: body, headers });
     expect(res.statusCode).toBe(400);
-    expect(res.json().message).toContain("仅支持图片");
+    expect(res.json().message).toContain("仅支持");
+    await app.close();
+  });
+
+  it("拒绝 SVG(可携带脚本,默认排除)", async () => {
+    const mockHost: ImageHost = { id: "mock", async upload() { return { url: "x" }; } };
+    const app = await buildApp(mockHost);
+    const { body, headers } = multipartBody("a.svg", "image/svg+xml", "<svg/>");
+    const res = await app.inject({ method: "POST", url: "/upload", payload: body, headers });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toContain("仅支持");
     await app.close();
   });
 

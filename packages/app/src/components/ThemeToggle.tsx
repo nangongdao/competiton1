@@ -21,7 +21,7 @@ export function ThemeToggle({ mode, onCycle }: Props) {
       <Tooltip.Trigger asChild>
         <button
           type="button"
-          className="btn-icon"
+          className={mode === "system" ? "btn-icon" : "btn-icon theme-active"}
           onClick={onCycle}
           aria-label={`切换主题(当前:${LABEL[mode]})`}
         >

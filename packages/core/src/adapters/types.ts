@@ -11,8 +11,8 @@ import type { PlatformConfig, ResolvedPlatformConfig } from "../config/platform-
 export interface SerializedPayload {
   /** 平台原生主体内容:公众号内联 HTML / 知乎富文本 HTML / B站受限 HTML / 小红书纯文本。 */
   readonly content: string;
-  /** 内容 MIME:text/html 或 text/plain,决定剪贴板写入方式。 */
-  readonly mime: "text/html" | "text/plain";
+  /** 内容 MIME:text/html / text/plain / text/markdown,决定剪贴板写入方式。 */
+  readonly mime: "text/html" | "text/plain" | "text/markdown";
   /** 派生的平台标题(已按平台约束处理)。 */
   readonly title: string;
   /** 派生摘要 / 推荐语。 */
@@ -31,8 +31,9 @@ export interface SerializedPayload {
 export interface RehostContext {
   readonly platformId: string;
   readonly upload: (asset: Asset) => Promise<{ url?: string; mediaId?: string }>;
-  /** 单平台内图片上传并发上限。缺省按平台限流策略(公众号 3,其余 6)。 */
-  readonly concurrency?: number;
+  /** 单平台内图片上传并发上限。缺省按平台限流策略(公众号 3,其余 6)。
+   * 支持函数:批次执行中动态读取(供 AdaptiveConcurrency 实时升降,PERF-03)。 */
+  readonly concurrency?: number | (() => number);
 }
 
 export interface RehostResult {

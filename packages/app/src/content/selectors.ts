@@ -30,6 +30,27 @@ export const DEFAULT_SELECTORS: SelectorMap = {
   xiaohongshu: {
     textarea: ["#post-textarea", "textarea", '[contenteditable="true"]'],
   },
+  juejin: {
+    textarea: [".bytemd-editor textarea", ".CodeMirror textarea", "textarea", '[contenteditable="true"]'],
+  },
+  csdn: {
+    textarea: ["#content", ".editor textarea", "textarea", '[contenteditable="true"]'],
+  },
+  weibo: {
+    textarea: [".woo-box-flex textarea", 'textarea[placeholder*="分享"]', "textarea", '[contenteditable="true"]'],
+  },
+  douyin: {
+    textarea: ['textarea[placeholder*="说点什么"]', "textarea", '[contenteditable="true"]'],
+  },
+  kuaishou: {
+    textarea: ['textarea[placeholder*="说点什么"]', "textarea", '[contenteditable="true"]'],
+  },
+  shipinhao: {
+    textarea: ['textarea[placeholder*="说点什么"]', "textarea", '[contenteditable="true"]'],
+  },
+  toutiao: {
+    textarea: [".ProseMirror", ".editor textarea", "textarea", '[contenteditable="true"]'],
+  },
 };
 
 /** 运行时生效的选择器表(可被 override 覆盖)。 */

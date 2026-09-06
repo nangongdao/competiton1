@@ -1,10 +1,11 @@
 /**
- * 平台限流策略 + 自适应并发控制器(UPGRADE §4.2)。
+ * 平台限流策略 + 自适应并发控制器(UPGRADE §4.2 / PERF-03)。
  *
  * 不同平台图床/素材接口的限流强度不同:固定一个并发数不是最优。
  * - 静态基线:PLATFORM_RATE_POLICY 给出各平台默认图片并发与重试参数。
  * - 动态调节:AdaptiveConcurrency 按"遇 429 减半、连续成功缓慢恢复"的 AIMD 策略
  *   自适应升降并发,调用方把它注入 RehostContext.concurrency 即可生效。
+ * - 退避:限流时按 Retry-After 或指数退避 + 随机抖动等待,避免风暴。
  */
 export interface RatePolicy {
   /** 单平台内图片上传并发上限。 */
@@ -73,4 +74,32 @@ export class AdaptiveConcurrency {
     this.current = this.max;
     this.successStreak = 0;
   }
+}
+
+/** 全抖动:退避 = base * 2^attempt * (0.5 + random*0.5),避免同步风暴。 */
+export function jitteredBackoff(baseMs: number, attempt: number, jitter = 0.5): number {
+  const exp = baseMs * 2 ** Math.max(0, attempt - 1);
+  const min = exp * (1 - jitter);
+  const span = exp * jitter * 2;
+  return Math.round(min + Math.random() * span);
+}
+
+/**
+ * 解析 Retry-After 头:支持秒数或 HTTP 日期。返回等待毫秒;解析失败返回 null。
+ */
+export function parseRetryAfter(value: string | undefined | null, now = Date.now()): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // 纯秒数。
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) ? seconds * 1000 : null;
+  }
+  // HTTP 日期。
+  const time = Date.parse(trimmed);
+  if (!Number.isNaN(time)) {
+    return Math.max(0, time - now);
+  }
+  return null;
 }

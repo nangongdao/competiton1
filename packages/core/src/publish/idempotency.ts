@@ -5,8 +5,10 @@
  * 未收到成功响应而重试,同名同内容的请求可能产生重复草稿/重复发布。
  * 给每次发布算一个稳定 key,服务端命中即直接返回首次结果,不再二次提交平台。
  *
- * 纯同步实现(无依赖):core 同时被浏览器扩展与 Node server 使用,
- * 不能用 Node crypto / 异步 WebCrypto,故用确定性 FNV-1a 32 位哈希。
+ * 摘要策略(路线图 SEC-01 约束):
+ * - 真实发布幂等摘要优先用 SHA-256(WebCrypto,浏览器与 Node 20+ 均可用),取 128 位前缀;
+ * - 环境不支持 WebCrypto 时退化为确定性 FNV-1a 32 位(跨进程稳定,仅作缓存键);
+ * - FNV 可保留作缓存键,但客户端提供的 key 不能被直接信任 —— 服务端始终自行派生摘要。
  */
 import type { SerializedPayload } from "../adapters/types.js";
 
@@ -31,6 +33,11 @@ export function buildIdempotencyKey(
   return `${platformId}:${intent}:${contentHash}`;
 }
 
+/** 最小 WebCrypto 抽象:只用 digest,避免依赖 DOM lib(Node-only 构建也可用)。 */
+interface SubtleLike {
+  digest(algorithm: "SHA-256", data: Uint8Array): Promise<ArrayBuffer>;
+}
+
 /**
  * 从序列化产物派生稳定内容哈希。
  *
@@ -39,16 +46,30 @@ export function buildIdempotencyKey(
  *
  * @param payload 序列化产物
  * @param publish 是否直接发布(区别于仅存草稿)
- * @returns 8 位十六进制内容哈希
+ * @returns 内容哈希(WebCrypto 时 32 位十六进制 SHA-256 前缀;退化时 8 位 FNV-1a)
  */
-export function contentHashOfPayload(payload: SerializedPayload, publish: boolean): string {
+export async function contentHashOfPayload(payload: SerializedPayload, publish: boolean): Promise<string> {
   const source = JSON.stringify([
     payload.content,
     payload.title,
     payload.summary ?? "",
     publish ? "publish" : "draft",
   ]);
+  const subtle = (globalThis as { crypto?: { subtle?: SubtleLike } }).crypto?.subtle;
+  if (subtle) {
+    const bytes = new TextEncoder().encode(source);
+    const digest = await subtle.digest("SHA-256", bytes);
+    return hexPrefix(new Uint8Array(digest), 16);
+  }
+  // 退化:确定性 FNV-1a(无 WebCrypto 的极旧环境)。
   return fnv1a(source);
+}
+
+/** 取前 n 字节的十六进制。 */
+function hexPrefix(bytes: Uint8Array, n: number): string {
+  return Array.from(bytes.slice(0, n))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** FNV-1a 32 位哈希 → 8 位十六进制(确定性、跨进程稳定)。 */

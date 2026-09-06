@@ -33,9 +33,22 @@ function parse() {
 }
 
 describe("适配器注册表", () => {
-  it("注册了四个内置平台", () => {
-    expect(listPlatformIds().sort()).toEqual(["bilibili", "wechat", "xiaohongshu", "zhihu"]);
-    expect(listAdapters()).toHaveLength(4);
+  it("注册了十二个内置平台(五平台 + CSDN/博客园 + 微博/头条/抖音/快手/视频号)", () => {
+    expect(listPlatformIds().sort()).toEqual([
+      "bilibili",
+      "cnblogs",
+      "csdn",
+      "douyin",
+      "juejin",
+      "kuaishou",
+      "shipinhao",
+      "toutiao",
+      "wechat",
+      "weibo",
+      "xiaohongshu",
+      "zhihu",
+    ]);
+    expect(listAdapters()).toHaveLength(12);
   });
 });
 
@@ -118,6 +131,72 @@ describe("小红书适配器", () => {
   });
 });
 
+describe("掘金适配器(SDK-02 第五平台试点)", () => {
+  it("产出原生 Markdown,标题/标签符合约束", () => {
+    const a = getAdapter("juejin")!;
+    const payload = a.serialize(a.preprocess(parse()));
+    expect(payload.mime).toBe("text/markdown");
+    expect(payload.content).toContain("# ");
+    expect(payload.content).toContain("## ");
+    expect(payload.content).toContain("- ");
+    expect([...payload.title].length).toBeLessThanOrEqual(64);
+    expect(payload.tags.length).toBeLessThanOrEqual(3);
+  });
+
+  it("代码块与表格保留原生 Markdown 语法", () => {
+    const a = getAdapter("juejin")!;
+    const doc = markdownToIR(`# 标题
+
+\`\`\`ts
+const x = 1;
+\`\`\`
+
+| A | B |
+| --- | --- |
+| 1 | 2 |`).document;
+    const payload = a.serialize(a.preprocess(doc));
+    expect(payload.content).toContain("```ts");
+    expect(payload.content).toContain("| A | B |");
+  });
+
+  it("公式保留 LaTeX 语法(原生支持)", () => {
+    const a = getAdapter("juejin")!;
+    const doc = markdownToIR("# 标题\n\n行内公式 $a^2$ 与块级 $$\\int x\\,dx$$").document;
+    const payload = a.serialize(a.preprocess(doc));
+    expect(payload.content).toContain("$a^2$");
+    // 块级公式被解析为 inlineMath,序列化输出单 $ 包裹(掘金编辑器可正常渲染 LaTeX)。
+    expect(payload.content).toContain("$\\int x");
+  });
+});
+
+
+describe("CSDN 适配器(官方 API 平台)", () => {
+  it("产出原生 Markdown,分类/标签保留在 extra", () => {
+    const a = getAdapter("csdn")!;
+    const payload = a.serialize(a.preprocess(parse()), { category: "后端" });
+    expect(payload.mime).toBe("text/markdown");
+    expect(payload.content).toContain("# ");
+    expect(payload.extra?.category).toBe("后端");
+    expect(payload.tags.length).toBeLessThanOrEqual(5);
+  });
+
+  it("代码块与表格保留原生 Markdown 语法", () => {
+    const a = getAdapter("csdn")!;
+    const doc = markdownToIR(`# 标题
+
+\`\`\`ts
+const x = 1;
+\`\`\`
+
+| A | B |
+| --- | --- |
+| 1 | 2 |`).document;
+    const payload = a.serialize(a.preprocess(doc));
+    expect(payload.content).toContain("```ts");
+    expect(payload.content).toContain("| A | B |");
+  });
+});
+
 describe("公众号主题", () => {
   it("未知标签返回空字符串", () => {
     const theme = createMinimalTheme();
@@ -135,5 +214,74 @@ describe("instructionsFor", () => {
     const result = instructionsFor("unknown-platform");
     expect(result).toHaveLength(1);
     expect(result[0]).toContain("默认走模拟发布");
+  });
+});
+
+describe("微博适配器(纯文本 + 话题)", () => {
+  it("产出纯文本 + #话题#,标题 ≤30 字", () => {
+    const a = getAdapter("weibo")!;
+    const payload = a.serialize(a.preprocess(parse()), { tags: ["效率", "工具"] });
+    expect(payload.mime).toBe("text/plain");
+    expect(payload.content).toContain("#效率#");
+    expect([...payload.title].length).toBeLessThanOrEqual(30);
+    expect(payload.tags.length).toBeLessThanOrEqual(2);
+  });
+
+  it("正文超 2000 字时标记 overflow", () => {
+    const a = getAdapter("weibo")!;
+    const long = "# 标题\n\n" + "内容很长。".repeat(600);
+    const doc = markdownToIR(long).document;
+    const payload = a.serialize(a.preprocess(doc));
+    expect(payload.extra?.["overflow"]).toBe(true);
+    expect([...payload.content].length).toBeLessThanOrEqual(2000);
+  });
+});
+
+describe("头条号适配器(Markdown 原生)", () => {
+  it("产出原生 Markdown,分类/标签保留在 extra", () => {
+    const a = getAdapter("toutiao")!;
+    const payload = a.serialize(a.preprocess(parse()), { category: "科技" });
+    expect(payload.mime).toBe("text/markdown");
+    expect(payload.content).toContain("# ");
+    expect(payload.extra?.category).toBe("科技");
+    expect(payload.tags.length).toBeLessThanOrEqual(5);
+    expect([...payload.title].length).toBeLessThanOrEqual(64);
+  });
+
+  it("代码块与表格保留 Markdown 语法", () => {
+    const a = getAdapter("toutiao")!;
+    const doc = markdownToIR(`# 标题
+
+\`\`\`ts
+const x = 1;
+\`\`\`
+
+| A | B |
+| --- | --- |
+| 1 | 2 |`).document;
+    const payload = a.serialize(a.preprocess(doc));
+    expect(payload.content).toContain("```ts");
+    expect(payload.content).toContain("| A | B |");
+  });
+});
+
+describe("短视频平台适配器(抖音/快手/视频号)", () => {
+  const VIDEO_IDS = ["douyin", "kuaishou", "shipinhao"] as const;
+  it.each(VIDEO_IDS)("%s 产出纯文本 + #话题#,标题/正文受限", (pid) => {
+    const a = getAdapter(pid)!;
+    const payload = a.serialize(a.preprocess(parse()), { tags: ["效率", "工具", "学习"] });
+    expect(payload.mime).toBe("text/plain");
+    expect(payload.content).toContain("#效率#");
+    expect([...payload.title].length).toBeLessThanOrEqual(55);
+    expect(payload.tags.length).toBeLessThanOrEqual(5);
+  });
+
+  it.each(VIDEO_IDS)("%s 超长正文被截断并标记 overflow", (pid) => {
+    const a = getAdapter(pid)!;
+    const long = "# 标题\n\n" + "内容很长。".repeat(400);
+    const doc = markdownToIR(long).document;
+    const payload = a.serialize(a.preprocess(doc));
+    expect(payload.extra?.["overflow"]).toBe(true);
+    expect([...payload.content].length).toBeLessThanOrEqual(1000);
   });
 });

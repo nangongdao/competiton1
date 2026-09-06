@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WechatPublisher } from "../src/wechat/rehost.js";
+import { WechatPublisher, type ImageFetcher } from "../src/wechat/rehost.js";
 import type { WechatPublishPayload } from "../src/wechat/rehost.js";
 
 /** 最小有效发布 payload(带封面 URL 才能过 draft/add 的封面校验)。 */
@@ -9,6 +9,15 @@ const PAYLOAD = {
   coverImageUrl: "https://cdn.example.com/cover.png",
   publish: false,
 };
+
+/** 测试用图片抓取器:任何 URL 都返回一张假 PNG(SecureImageFetcher 的 DNS 校验在测试环境不可用)。 */
+function mockFetcher(): ImageFetcher {
+  return async (url) => ({
+    bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    mime: "image/png",
+    finalUrl: url,
+  });
+}
 
 /** 构造 mock fetch:按 URL 关键词返回微信 API 响应。 */
 function stubWechatApi(calls: { count: () => number }) {
@@ -38,7 +47,7 @@ describe("WechatPublisher — 幂等发布", () => {
     let apiCalls = 0;
     stubWechatApi({ count: () => apiCalls++ });
 
-    const pub = new WechatPublisher("appid", "secret");
+    const pub = new WechatPublisher("appid", "secret", { imageFetcher: mockFetcher() });
     const first = await pub.publish(PAYLOAD);
     expect(first.ok).toBe(true);
     expect(first.remoteId).toBe("MEDIA_1");
@@ -54,7 +63,7 @@ describe("WechatPublisher — 幂等发布", () => {
     let apiCalls = 0;
     stubWechatApi({ count: () => apiCalls++ });
 
-    const pub = new WechatPublisher("appid", "secret");
+    const pub = new WechatPublisher("appid", "secret", { imageFetcher: mockFetcher() });
     const first = await pub.publish(PAYLOAD);
     expect(first.ok).toBe(true);
 
@@ -70,7 +79,7 @@ describe("WechatPublisher — 幂等发布", () => {
     let apiCalls = 0;
     stubWechatApi({ count: () => apiCalls++ });
     // 无封面 → publishOnce 在 token 获取后直接返回失败。
-    const pub = new WechatPublisher("appid", "secret");
+    const pub = new WechatPublisher("appid", "secret", { imageFetcher: mockFetcher() });
     const badPayload = { ...PAYLOAD, coverImageUrl: undefined };
     const first = await pub.publish(badPayload);
     expect(first.ok).toBe(false);
@@ -112,14 +121,6 @@ describe("WechatPublisher — 正文图并发重托管(UPGRADE §1/§2)", () => 
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (url.startsWith("https://img.example.com/")) {
-          // 模拟正文图下载(可并发)。
-          activeImgs++;
-          maxActiveImgs = Math.max(maxActiveImgs, activeImgs);
-          await new Promise((r) => setTimeout(r, 20));
-          activeImgs--;
-          return new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }), { status: 200 });
-        }
         return new Response(JSON.stringify(body), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -127,7 +128,16 @@ describe("WechatPublisher — 正文图并发重托管(UPGRADE §1/§2)", () => 
       }),
     );
 
-    const pub = new WechatPublisher("appid", "secret");
+    // 注入可控并发的图片抓取器(替代真实 DNS 校验)。
+    const fetcher: ImageFetcher = async (url) => {
+      activeImgs++;
+      maxActiveImgs = Math.max(maxActiveImgs, activeImgs);
+      await new Promise((r) => setTimeout(r, 20));
+      activeImgs--;
+      return { bytes: new Uint8Array([1, 2, 3]), mime: "image/png", finalUrl: url };
+    };
+
+    const pub = new WechatPublisher("appid", "secret", { imageFetcher: fetcher });
     const payload: WechatPublishPayload = {
       title: "标题",
       content:
@@ -142,5 +152,40 @@ describe("WechatPublisher — 正文图并发重托管(UPGRADE §1/§2)", () => 
     expect(uploadimgCalls).toBe(2);
     // 并发:两张图下载存在同时在途(串行实现 maxActiveImgs 恒为 1)。
     expect(maxActiveImgs).toBeGreaterThan(1);
+  });
+});
+
+describe("WechatPublisher — 并发幂等(REL-02)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("20 个并发相同请求只产生一次平台副作用", async () => {
+    let draftAddCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        const body: Record<string, unknown> = { errcode: 0, errmsg: "ok" };
+        if (url.includes("/cgi-bin/stable_token")) body.access_token = "TOKEN";
+        if (url.includes("/draft/add")) {
+          draftAddCalls++;
+          // 模拟平台处理延迟,放大并发窗口。
+          await new Promise((r) => setTimeout(r, 20));
+          body.media_id = "MEDIA_1";
+        }
+        if (url.includes("/material/add_material")) body.media_id = "THUMB_1";
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const pub = new WechatPublisher("appid", "secret", { imageFetcher: mockFetcher() });
+    const results = await Promise.all(Array.from({ length: 20 }, () => pub.publish(PAYLOAD)));
+    for (const r of results) expect(r.ok).toBe(true);
+    // 并发 20 次只产生一次 draft/add 副作用。
+    expect(draftAddCalls).toBe(1);
   });
 });

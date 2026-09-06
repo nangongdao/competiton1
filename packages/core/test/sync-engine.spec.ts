@@ -7,7 +7,7 @@ const SAMPLE = "# 测试标题\n\n正文内容。\n\n![图](https://e.com/i.png)
 const fixedNow = () => "2026-01-01T00:00:00.000Z";
 
 describe("syncToPlatforms", () => {
-  it("对四平台各自产出独立结果", async () => {
+  it("对多平台各自产出独立结果", async () => {
     const doc = markdownToIR(SAMPLE).document;
     const results = await syncToPlatforms(doc, ["wechat", "zhihu", "bilibili", "xiaohongshu"], {
       now: fixedNow,
