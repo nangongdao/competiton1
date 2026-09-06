@@ -4,6 +4,8 @@ import {
   DEFAULT_RATE_POLICY,
   ratePolicyFor,
   AdaptiveConcurrency,
+  jitteredBackoff,
+  parseRetryAfter,
 } from "../src/assets/rate-policy.js";
 
 describe("ratePolicyFor — 平台限流策略", () => {
@@ -74,5 +76,55 @@ describe("AdaptiveConcurrency — AIMD 自适应并发", () => {
 
   it("initial 参数可低于上限起跑", () => {
     expect(new AdaptiveConcurrency(6, 1, 2).value).toBe(2);
+  });
+});
+
+describe("jitteredBackoff — 指数退避 + 抖动", () => {
+  it("首次退避在 base*0.5 ~ base*1.5 之间(全抖动)", () => {
+    const v = jitteredBackoff(1000, 1);
+    expect(v).toBeGreaterThanOrEqual(500);
+    expect(v).toBeLessThanOrEqual(1500);
+  });
+
+  it("尝试次数越高退避越久(期望值递增)", () => {
+    // attempt=3 的指数基数更高(2^2=4x vs 2^1=2x),期望值翻倍。
+    // 注:全抖动下两者范围有重叠,单次抽样可能 low>high,故用多次抽样均值验证期望。
+    const sampleMean = (attempt: number) => {
+      let sum = 0;
+      const n = 500;
+      for (let i = 0; i < n; i++) sum += jitteredBackoff(500, attempt);
+      return sum / n;
+    };
+    const lowMean = sampleMean(2);
+    const highMean = sampleMean(3);
+    // 理论均值 1000 vs 2000;宽松断言(避免机器抖动误报)。
+    expect(highMean).toBeGreaterThan(lowMean);
+    expect(highMean).toBeGreaterThan(1500);
+    expect(lowMean).toBeLessThan(1500);
+  });
+
+  it("attempt 从 1 开始不产生 0 延迟", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(jitteredBackoff(100, 1)).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("parseRetryAfter — 解析 Retry-After 头", () => {
+  it("秒数格式", () => {
+    expect(parseRetryAfter("5")).toBe(5000);
+  });
+
+  it("HTTP 日期格式", () => {
+    const future = new Date(Date.now() + 3000).toUTCString();
+    const v = parseRetryAfter(future);
+    expect(v).toBeGreaterThanOrEqual(0);
+    expect(v).toBeLessThanOrEqual(4000);
+  });
+
+  it("空/非法返回 null", () => {
+    expect(parseRetryAfter(undefined)).toBeNull();
+    expect(parseRetryAfter("")).toBeNull();
+    expect(parseRetryAfter("abc")).toBeNull();
   });
 });

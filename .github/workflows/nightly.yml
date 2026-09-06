@@ -1,0 +1,40 @@
+name: nightly
+
+# main 夜间门禁(路线图 §6.3 门禁顺序 3):
+# - 性能重复样本(3 次,验证无抖动)
+# - 安全 payload(SSRF/鉴权/净化回归)
+# - 故障注入 + 进程重启恢复(Phase 2 退出条件)
+#
+# 使用 schedule 表达式(UTC):每天 02:17 运行一次 main 分支。
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  # 允许手动触发,便于在合并前预跑。
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    if: github.repository == 'yogsthoth1/competition1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck + Lint
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: 夜间门禁(故障注入 / 性能重复样本 / 安全回归)
+        run: node scripts/nightly-gate.mjs
+
+      - name: 生产依赖漏洞扫描
+        run: npm audit --omit=dev --audit-level=high

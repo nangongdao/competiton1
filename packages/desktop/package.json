@@ -1,0 +1,17 @@
+{
+  "name": "@mpp/desktop",
+  "version": "0.11.0-rc.1",
+  "private": true,
+  "description": "多平台内容发布工具桌面端 —— Tauri 2(摆脱浏览器启动)+ 内置终端(xterm.js)",
+  "type": "module",
+  "scripts": {
+    "icon": "node ../../scripts/generate-app-icon.mjs && tauri icon app-icon.png",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

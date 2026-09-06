@@ -1,4 +1,8 @@
 /* 样式入口:按 token → 骨架 → 组件 顺序加载。 */
+
+/* 展示字体(Inter / Space Grotesk / JetBrains Mono),加载失败自动回退系统栈 */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
 @import "./tokens.css";
 @import "./app.css";
 @import "./ui.css";

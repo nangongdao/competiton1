@@ -10,6 +10,11 @@ import { scanBannedWords, DEFAULT_BANNED_WORDS } from "../transforms/banned-word
 import type { SerializedPayload } from "../adapters/types.js";
 import type { ValidationIssue } from "./types.js";
 
+/** 文本类 MIME(纯文本 / Markdown)与 HTML 区分:文本类无需去标签。 */
+export function isTextMime(mime: string): boolean {
+  return mime === "text/plain" || mime === "text/markdown";
+}
+
 /** 标题长度规则。 */
 export function checkTitle(payload: SerializedPayload, limits: PlatformLimits): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -37,7 +42,7 @@ export function checkBody(payload: SerializedPayload, limits: PlatformLimits): V
   const max = limits.bodyMax;
   if (!max) return issues;
   // 纯文本直接计数;HTML 去标签后计数。
-  const text = payload.mime === "text/plain" ? payload.content : stripTags(payload.content);
+  const text = isTextMime(payload.mime) ? payload.content : stripTags(payload.content);
   const n = graphemeCount(text);
   if (n > max) {
     issues.push({

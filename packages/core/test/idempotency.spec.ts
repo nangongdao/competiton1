@@ -25,35 +25,35 @@ describe("fnv1a — 确定性哈希", () => {
 });
 
 describe("contentHashOfPayload — 内容哈希", () => {
-  it("相同 payload + 相同意图 → 相同哈希", () => {
-    expect(contentHashOfPayload(basePayload, false)).toBe(contentHashOfPayload(basePayload, false));
+  it("相同 payload + 相同意图 → 相同哈希", async () => {
+    expect(await contentHashOfPayload(basePayload, false)).toBe(await contentHashOfPayload(basePayload, false));
   });
 
-  it("草稿与发布意图产生不同哈希", () => {
-    expect(contentHashOfPayload(basePayload, false)).not.toBe(contentHashOfPayload(basePayload, true));
+  it("草稿与发布意图产生不同哈希", async () => {
+    expect(await contentHashOfPayload(basePayload, false)).not.toBe(await contentHashOfPayload(basePayload, true));
   });
 
-  it("正文变化产生不同哈希", () => {
+  it("正文变化产生不同哈希", async () => {
     const changed = { ...basePayload, content: "<p>改过的正文</p>" };
-    expect(contentHashOfPayload(basePayload, false)).not.toBe(contentHashOfPayload(changed, false));
+    expect(await contentHashOfPayload(basePayload, false)).not.toBe(await contentHashOfPayload(changed, false));
   });
 
-  it("摘要纳入哈希", () => {
+  it("摘要纳入哈希", async () => {
     const withSummary = { ...basePayload, summary: "摘要" };
-    expect(contentHashOfPayload(basePayload, false)).not.toBe(contentHashOfPayload(withSummary, false));
+    expect(await contentHashOfPayload(basePayload, false)).not.toBe(await contentHashOfPayload(withSummary, false));
   });
 });
 
 describe("buildIdempotencyKey — 幂等键", () => {
-  it("平台 + 哈希 + 意图组成稳定 key", () => {
-    const hash = contentHashOfPayload(basePayload, false);
+  it("平台 + 哈希 + 意图组成稳定 key", async () => {
+    const hash = await contentHashOfPayload(basePayload, false);
     expect(buildIdempotencyKey("wechat", hash, "draft")).toBe(
       `wechat:draft:${hash}`,
     );
   });
 
-  it("同内容同意图跨平台 key 不同", () => {
-    const hash = contentHashOfPayload(basePayload, false);
+  it("同内容同意图跨平台 key 不同", async () => {
+    const hash = await contentHashOfPayload(basePayload, false);
     expect(buildIdempotencyKey("wechat", hash, "draft")).not.toBe(
       buildIdempotencyKey("zhihu", hash, "draft"),
     );

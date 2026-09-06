@@ -43,21 +43,54 @@ export type RehostFailureHandler = (failure: RehostFailure) => void;
  */
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],
-  limit: number,
+  limit: number | (() => number),
   worker: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let cursor = 0;
 
-  const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await worker(items[index]!, index);
-    }
-  });
+  // 动态并发:每轮从 limit() 读取(允许 AIMD 实时升降);静态则固定。
+  const resolveLimit = (): number => {
+    const value = typeof limit === "function" ? limit() : limit;
+    return Math.max(1, Math.min(value, items.length));
+  };
 
-  await Promise.all(runners);
-  return results;
+  /** 当前在途任务数。 */
+  let active = 0;
+  /** 是否已把所有项交给 worker。 */
+  let done = false;
+
+  return new Promise<R[]>((resolve, reject) => {
+    /** 启动一个任务(受当前并发限制);当并发提升或空出槽位时继续补充。 */
+    const pump = (): void => {
+      // 尝试填充到当前并发上限。
+      while (active < resolveLimit() && cursor < items.length) {
+        const index = cursor++;
+        active++;
+        void (async () => {
+          try {
+            results[index] = await worker(items[index]!, index);
+          } catch (err) {
+            // 单个 worker 失败:立即拒绝并停止填充(与旧行为一致)。
+            done = true;
+            reject(err);
+            return;
+          } finally {
+            active--;
+            // 空出槽位后继续填充(若未失败且未完成)。
+            if (!done) pump();
+          }
+        })();
+      }
+      // 全部完成:解析。
+      if (active === 0 && cursor >= items.length && !done) {
+        done = true;
+        resolve(results);
+      }
+    };
+
+    pump();
+  });
 }
 
 /** 判断资产是否为可重托管的真实图片(排除变换生成的占位/平台原生资产)。 */

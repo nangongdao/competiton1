@@ -1,6 +1,6 @@
 {
   "name": "@mpp/core",
-  "version": "0.1.0",
+  "version": "0.11.0-rc.1",
   "private": true,
   "type": "module",
   "description": "多平台内容发布工具核心:IR、解析、降级变换、适配器、校验、发布器(纯 TS,零 DOM)",
@@ -10,6 +10,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./jobs/file-store": {
+      "types": "./dist/jobs/file-store.d.ts",
+      "default": "./dist/jobs/file-store.js"
+    },
+    "./collab/file-store": {
+      "types": "./dist/collab/file-store.d.ts",
+      "default": "./dist/collab/file-store.js"
     }
   },
   "scripts": {

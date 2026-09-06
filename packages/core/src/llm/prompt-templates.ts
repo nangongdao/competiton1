@@ -17,6 +17,12 @@ const TEMPLATES: Record<string, (req: LlmRequest) => string> = {
     return `为以下内容写一段 ≤${max} 字的摘要/推荐语,概括核心价值,语气自然。只输出摘要。\n\n内容:\n${req.input}`;
   },
   rewrite: (req) => `按目标平台 ${req.platformId} 的风格改写以下内容,保持信息准确:\n\n${req.input}`,
+  "paragraph-rewrite": (req) =>
+    `你是新媒体内容编辑,对下面的单个段落做风格润色。要求:\n` +
+    `1. 保持原意与全部事实、数字、专名、链接不变,不增删信息;\n` +
+    `2. 只输出改写后的段落文本(纯文本),不要输出标题、列表、引用或 Markdown 标记;\n` +
+    `3. 改写成适合目标平台 ${req.platformId} 的阅读风格,语气自然、段落通顺;\n` +
+    `4. 长度与原文相当(±30%),不超过 ${(req.constraints?.["maxChars"] as number) ?? 800} 字。\n\n段落:\n${req.input}`,
 };
 
 export function buildPrompt(req: LlmRequest): string {

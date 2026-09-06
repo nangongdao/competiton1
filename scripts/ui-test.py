@@ -1,4 +1,4 @@
-"""M2 交互验证:打开 web 工具,验证四平台实时预览 + 模拟发布闭环。"""
+"""M2 交互验证:打开 web 工具,验证多平台实时预览 + 模拟发布闭环。"""
 import sys
 import io
 from playwright.sync_api import sync_playwright
@@ -26,10 +26,10 @@ def main():
         # 1. 标题存在
         assert page.locator("h1").inner_text().strip() == "多平台内容发布工具", "标题不符"
 
-        # 2. 四平台预览卡片都出现
+        # 2. 多平台预览卡片都出现
         names = page.locator(".preview-name").all_inner_texts()
         print("预览平台:", names)
-        for expect in ["微信公众号", "知乎", "B站专栏", "小红书"]:
+        for expect in ["微信公众号", "知乎", "B站专栏", "小红书", "掘金", "CSDN"]:
             assert expect in names, f"缺少平台预览: {expect}"
 
         # 3. 截图初始状态

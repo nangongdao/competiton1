@@ -41,7 +41,7 @@ def main():
             page.wait_for_load_state("networkidle")
             page.wait_for_timeout(1000)
 
-            # 扩展页应与 web 同一 UI:标题 + 四平台预览
+            # 扩展页应与 web 同一 UI:标题 + 多平台预览
             h1 = page.locator("h1").inner_text().strip()
             print("页面标题:", h1)
             assert h1 == "多平台内容发布工具", "扩展页标题不符"

@@ -9,6 +9,11 @@ describe("平台选择器外置 + 远程覆盖", () => {
     expect(getSelectors("xiaohongshu").textarea).toEqual(DEFAULT_SELECTORS.xiaohongshu!.textarea);
   });
 
+  it("掘金/CSDN 已接入内容脚本注入", () => {
+    expect(getSelectors("juejin").textarea).toEqual(DEFAULT_SELECTORS.juejin!.textarea);
+    expect(getSelectors("csdn").textarea).toEqual(DEFAULT_SELECTORS.csdn!.textarea);
+  });
+
   it("未知平台返回空配置", () => {
     expect(getSelectors("unknown")).toEqual({});
   });

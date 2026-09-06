@@ -59,3 +59,56 @@ describe("性能回归 — 重托管并发化(4 平台 × 12 图)", () => {
     expect(tracker.max).toBeGreaterThanOrEqual(2);
   });
 });
+
+import { PreviewPipeline } from "../src/preview/pipeline.js";
+
+/** 构造一篇含较多内容块的长文(模拟真实预览输入)。 */
+function longMarkdown(paragraphs: number): string {
+  let md = "# 长文预览性能测试\n\n";
+  for (let i = 0; i < paragraphs; i++) {
+    md += `## 小节 ${i}\n\n这是第 ${i} 段正文,包含一些**加粗**、*斜体*、\`代码\` 和[链接](https://example.com/${i})。\n\n`;
+  }
+  md += "![配图](https://img.example.com/1.png)\n";
+  return md;
+}
+
+describe("性能预算 — 预览管线(4 平台,长文)", () => {
+  it("冷启动(无缓存)全量适配 p95 < 100ms,热缓存命中 p95 < 50ms", async () => {
+    const pipe = new PreviewPipeline();
+    const md = longMarkdown(20); // 20 段 + 标题 + 图
+    const input = { markdown: md, selectedPlatforms: FOUR_PLATFORMS };
+
+    // 预热一次(确保模块已加载)。
+    pipe.adapt(input);
+
+    // 冷启动:源变化触发全量重算。
+    const cold: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const t0 = performance.now();
+      pipe.adapt({ ...input, markdown: `${md}\n\n第 ${i} 次。` });
+      cold.push(performance.now() - t0);
+    }
+
+    // 热缓存:相同输入全命中。
+    const hot: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const t0 = performance.now();
+      pipe.adapt(input);
+      hot.push(performance.now() - t0);
+    }
+
+    const p95 = (arr: number[]) => {
+      const sorted = [...arr].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length * 0.95)]!;
+    };
+    const coldP95 = p95(cold);
+    const hotP95 = p95(hot);
+
+    // 路线图预算:冷启动 p95 < 100ms;热缓存 p95 < 50ms。
+    // (节点 CI 上核心逻辑为纯 CPU,无 DOM,预算宽松以容忍 CI 抖动。)
+    expect(coldP95).toBeLessThan(100);
+    expect(hotP95).toBeLessThan(50);
+    // 热缓存显著快于冷启动(命中有效)。
+    expect(hotP95).toBeLessThan(coldP95);
+  });
+});

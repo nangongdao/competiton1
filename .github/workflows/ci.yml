@@ -32,15 +32,104 @@ jobs:
         run: npm run lint
 
       - name: Test with coverage
-        run: npm run test:coverage
+        # 浏览器测试(web-e2e / platform-fixtures)由独立 browser job 执行:
+        # 主 job 未装 Chromium,排除避免 CI 强制失败。
+        run: npx vitest run --coverage --exclude "**/web-e2e.spec.ts" --exclude "**/platform-fixtures.spec.ts"
 
       # 生产依赖漏洞扫描(--omit=dev:开发期工具链(vitest/vite)漏洞不阻塞发布,
       # 只强制关注 server/扩展运行时依赖的安全)。
       - name: 生产依赖漏洞扫描
         run: npm audit --omit=dev --audit-level=high
 
-      # 构建产物验证:core 类型构建 + 扩展 MV3 产物,确保可发布。
+      # 构建产物验证:core + Web + server + runner + 扩展 MV3,确保全部可发布。
       - name: 构建产物验证
         run: |
           npm run build:core
+          npm run build:web
+          npm run build:server
+          npm run build:runner
           npm run build:ext
+
+      # Bundle 门禁(TEST-02):单 chunk <500kB,首屏 gzip <180kB。
+      - name: Bundle 大小门禁
+        run: node scripts/check-bundle.mjs
+
+      - name: 演示闭环验证
+        run: npm run demo
+
+  # 浏览器 fixture 独立 job:不与全量 Vitest 并行竞争 CPU,避免 runner 抖动。
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: 安装 Chromium(Playwright)
+        run: npx playwright install --with-deps chromium
+
+      - name: TEST-04 前置检查(Chromium + fixture 用例数)
+        run: node scripts/check-browser-fixture.mjs
+
+      - name: 构建 Web 产物(浏览器 E2E 依赖)
+        run: |
+          npm run build:core
+          npm run build:web
+
+      - name: 运行浏览器 fixture 测试(runner)
+        run: npx vitest run packages/runner/test/platform-fixtures.spec.ts
+        env:
+          CI: "true"
+
+      - name: 运行 Web App 浏览器冒烟 E2E
+        run: npx vitest run packages/app/test/web-e2e.spec.ts
+        env:
+          CI: "true"
+
+  # 桌面端(Tauri)构建:验证 Rust 侧可编译 + 前端产物可被打包。
+  # Rust 工具链缺失时优雅跳过(该环境没有 cargo 也能跑完其余 CI)。
+  desktop:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux system deps (Tauri)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential \
+            curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build core + web
+        run: |
+          npm run build:core
+          npm run build -w @mpp/app
+
+      - name: Tauri build (debug)
+        run: npm run build:debug -w @mpp/desktop
+        env:
+          # CI 无签名需求,跳过 bundling 中耗时且易碎的部分。
+          TAURI_SKIP_BUNDLE: "1"

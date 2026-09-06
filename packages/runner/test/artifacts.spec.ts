@@ -52,3 +52,43 @@ describe("automation run artifacts", () => {
     });
   });
 });
+
+describe("OBS-01 诊断工件清理", () => {
+  it("parseArtifactTimestamp 解析 ISO 目录名", async () => {
+    const { parseArtifactTimestamp } = await import("../src/diagnostics/artifacts.js");
+    const ts = parseArtifactTimestamp("2026-05-31T10-20-30-000Z-zhihu");
+    expect(ts).toBe(Date.UTC(2026, 4, 31, 10, 20, 30, 0));
+    expect(parseArtifactTimestamp("random-dir")).toBeUndefined();
+  });
+
+  it("pruneRunArtifacts 清理超过保留数量的旧目录", async () => {
+    const { createRunArtifacts, pruneRunArtifacts } = await import("../src/diagnostics/artifacts.js");
+    const root = await mkdtemp(join(tmpdir(), "mpp-runs-"));
+    const now = new Date();
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(now.getTime() - i * 1000);
+      await createRunArtifacts(root, "zhihu", d);
+    }
+    // 最多保留 2 个
+    const removed = await pruneRunArtifacts(root, now.getTime(), 2);
+    expect(removed).toBe(1);
+    const left = await import("node:fs/promises").then((fs) => fs.readdir(root));
+    expect(left).toHaveLength(2);
+  });
+
+  it("pruneRunArtifacts 清理超过 TTL 的旧目录", async () => {
+    const { createRunArtifacts, pruneRunArtifacts, RUN_ARTIFACTS_TTL_MS } = await import("../src/diagnostics/artifacts.js");
+    const root = await mkdtemp(join(tmpdir(), "mpp-runs-"));
+    const now = Date.now();
+    await createRunArtifacts(root, "zhihu", new Date(now - RUN_ARTIFACTS_TTL_MS - 60_000));
+    await createRunArtifacts(root, "zhihu", new Date(now - 60_000));
+    const removed = await pruneRunArtifacts(root, now);
+    expect(removed).toBe(1);
+  });
+
+  it("pruneRunArtifacts 目录不存在时返回 0", async () => {
+    const { pruneRunArtifacts } = await import("../src/diagnostics/artifacts.js");
+    const removed = await pruneRunArtifacts(join(tmpdir(), "does-not-exist-mpp-runs"));
+    expect(removed).toBe(0);
+  });
+});

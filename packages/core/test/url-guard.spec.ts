@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isSafeImageUrl } from "../src/assets/url-guard.js";
+import { isSafeImageUrl, isBlockedIp } from "../src/assets/url-guard.js";
 
 describe("isSafeImageUrl — SSRF 防护", () => {
   it("放行公网 https 图片", () => {
@@ -40,5 +40,44 @@ describe("isSafeImageUrl — SSRF 防护", () => {
 
   it("拦截非法 URL", () => {
     expect(isSafeImageUrl("not a url").safe).toBe(false);
+  });
+});
+
+describe("isBlockedIp — 服务端 DNS 解析后的 IP 校验", () => {
+  it("拦截全部私网/回环/保留 IPv4", () => {
+    expect(isBlockedIp("127.0.0.1")).toBe(true);
+    expect(isBlockedIp("10.1.2.3")).toBe(true);
+    expect(isBlockedIp("172.16.5.5")).toBe(true);
+    expect(isBlockedIp("192.168.1.1")).toBe(true);
+    expect(isBlockedIp("169.254.169.254")).toBe(true);
+    expect(isBlockedIp("0.0.0.0")).toBe(true);
+    expect(isBlockedIp("100.64.0.1")).toBe(true);
+    expect(isBlockedIp("224.0.0.1")).toBe(true);
+  });
+
+  it("放行公网 IPv4", () => {
+    expect(isBlockedIp("93.184.216.34")).toBe(false);
+    expect(isBlockedIp("8.8.8.8")).toBe(false);
+  });
+
+  it("拦截 IPv6 回环与内网", () => {
+    expect(isBlockedIp("::1")).toBe(true);
+    expect(isBlockedIp("::")).toBe(true);
+    expect(isBlockedIp("fc00::1")).toBe(true);
+    expect(isBlockedIp("fd12:3456::1")).toBe(true);
+    expect(isBlockedIp("fe80::1")).toBe(true);
+  });
+
+  it("放行公网 IPv6", () => {
+    expect(isBlockedIp("2606:2800:220:1::1")).toBe(false);
+  });
+
+  it("IPv4-mapped IPv6 落到 IPv4 判断", () => {
+    expect(isBlockedIp("::ffff:127.0.0.1")).toBe(true);
+    expect(isBlockedIp("::ffff:8.8.8.8")).toBe(false);
+  });
+
+  it("非 IP 输入不误判为私网(交给 DNS 解析层)", () => {
+    expect(isBlockedIp("example.com")).toBe(false);
   });
 });

@@ -4,8 +4,8 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "多平台内容发布工具",
-  version: "0.1.0",
-  description: "一份内容自动适配公众号/知乎/B站/小红书并一键发布(默认模拟)",
+  version: "0.11.0-rc.1",
+  description: "一份内容自动适配公众号/知乎/B站/小红书/掘金/CSDN并一键发布(默认模拟)",
   // 主界面 = 独立整页(dedicated tab),由 background 打开。
   action: {
     default_title: "打开多平台发布工具",
@@ -23,6 +23,10 @@ export default defineManifest({
     "https://zhuanlan.zhihu.com/*",
     "https://member.bilibili.com/*",
     "https://creator.xiaohongshu.com/*",
+    "https://juejin.cn/*",
+    "https://editor.csdn.net/*",
+    "https://i.cnblogs.com/*",
+    "https://www.cnblogs.com/*",
     // 本机 server(图床/公众号官方 API)与 runner(网页自动化发布)端口。
     // 收窄到实际端口,并优先 127.0.0.1 而非 localhost(后者可被 hosts 文件劫持)。
     "http://127.0.0.1:8787/*",
@@ -35,6 +39,9 @@ export default defineManifest({
         "https://zhuanlan.zhihu.com/*",
         "https://member.bilibili.com/*",
         "https://creator.xiaohongshu.com/*",
+        "https://juejin.cn/*",
+        "https://editor.csdn.net/*",
+        "https://i.cnblogs.com/*",
       ],
       js: ["src/content/assisted-handoff.ts"],
       run_at: "document_idle",

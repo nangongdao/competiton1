@@ -7,7 +7,9 @@ export async function uploadAssetViaServer(req: UploadAssetRequest): Promise<Upl
     // TS 5.7 收窄 Uint8Array 泛型,显式转为 BlobPart 兼容类型。
     const blob = new Blob([req.bytes as BlobPart], { type: req.mime });
     form.append("file", blob, req.filename);
-    const res = await fetch(`${req.serverUrl}/upload`, { method: "POST", body: form });
+    const headers: Record<string, string> = {};
+    if (req.token) headers["X-MPP-Token"] = req.token;
+    const res = await fetch(`${req.serverUrl}/upload`, { method: "POST", body: form, headers });
     const data = (await res.json()) as { ok: boolean; url?: string; mediaId?: string; message?: string };
     return data;
   } catch (err) {

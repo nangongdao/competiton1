@@ -1,0 +1,3 @@
+# Desktop 构建产物与本地数据
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/
